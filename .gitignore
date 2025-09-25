@@ -1,0 +1,32 @@
+# Build artifacts
+target/
+*.tar.gz
+
+# PHPUnit
+phpunit.phar
+.phpunit.cache/
+coverage/
+coverage-html/
+test-results.xml
+coverage.xml
+tests/results/
+tests/temp/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+temp/
+/.phpunit.result.cache
