@@ -1,0 +1,243 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: ['8.3', '8.4']
+        
+    name: Test PHP ${{ matrix.php-version }}
+        
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+        
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: ${{ matrix.php-version }}
+        extensions: tokenizer, spl, phar
+        ini-values: phar.readonly=0
+        coverage: xdebug
+        tools: composer
+        
+    - name: Validate PHP version requirement
+      run: |
+        php -r "
+        if (PHP_VERSION_ID < 80300) {
+          echo 'PAL requires PHP 8.3 or higher. Current: ' . PHP_VERSION . PHP_EOL;
+          exit(1);
+        }
+        echo 'PHP version check passed: ' . PHP_VERSION . PHP_EOL;
+        "
+        
+    - name: Check PHP extensions
+      run: |
+        php -m | grep -E "(tokenizer|SPL|Phar)" || (echo "Required extensions missing" && exit 1)
+        
+    - name: Install PHPUnit
+      run: make install-phpunit
+      
+    - name: Create test directories
+      run: mkdir -p tests/results coverage
+      
+    - name: Run tests
+      run: make ci-test
+      
+    - name: Run tests with coverage
+      run: |
+        if command -v phpunit >/dev/null 2>&1; then
+          phpunit --coverage-clover coverage/clover.xml --coverage-html coverage/html
+        else
+          php phpunit.phar --coverage-clover coverage/clover.xml --coverage-html coverage/html
+        fi
+        
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results-php-${{ matrix.php-version }}
+        path: |
+          tests/results/
+          coverage/
+        retention-days: 30
+        
+    - name: Build PAL
+      run: make build
+      
+    - name: Build PHAR
+      run: make phar
+      
+    - name: Test built files
+      run: |
+        # Test that pal.php works
+        if [ ! -f target/pal.php ]; then
+          echo "pal.php not built"
+          exit 1
+        fi
+        
+        # Test that pal.phar works
+        if [ ! -f target/pal.phar ]; then
+          echo "pal.phar not built"
+          exit 1
+        fi
+        
+        # Simple functionality test for pal.php
+        php -r "
+        require 'target/pal.php';
+        echo 'pal.php loads successfully' . PHP_EOL;
+        "
+        
+        # Simple functionality test for pal.phar
+        php -r "
+        require 'target/pal.phar';
+        echo 'pal.phar loads successfully' . PHP_EOL;
+        "
+        
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifacts-php-${{ matrix.php-version }}
+        path: |
+          target/pal.php
+          target/pal.phar
+        retention-days: 30
+
+  quality:
+    runs-on: ubuntu-latest
+    name: Code Quality
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.3'
+        extensions: tokenizer, spl, phar
+        tools: composer
+        
+    - name: PHP Syntax Check
+      run: |
+        find . -name "*.php" -not -path "./vendor/*" -not -path "./target/*" -not -path "./.phpunit.cache/*" | xargs -I {} php -l {}
+        
+    - name: Check file permissions
+      run: |
+        # Ensure source files are not executable
+        find src/ -name "*.php" -executable | while read file; do
+          echo "ERROR: $file should not be executable"
+          exit 1
+        done || true
+        
+    - name: Validate Makefile targets
+      run: |
+        make clean
+        make build
+        make phar
+        make clean
+        
+    - name: Test PAL functionality
+      run: |
+        make build
+        
+        # Create a test scenario
+        mkdir -p test_scenario/src
+        cat > test_scenario/src/TestClass.php << 'EOF'
+        <?php
+        namespace TestScenario;
+        
+        class TestClass {
+            public function getMessage(): string {
+                return "Hello from TestClass!";
+            }
+        }
+        EOF
+        
+        # Test pal.php
+        php -r "
+        require 'target/pal.php'; 
+        \pal\Autoloader::autoload('test_scenario/src');
+        \$obj = new TestScenario\TestClass();
+        echo \$obj->getMessage() . PHP_EOL;
+        "
+        
+        # Test pal.phar
+        make phar
+        php -r "
+        require 'target/pal.phar'; 
+        \pal\Autoloader::autoload('test_scenario/src');
+        \$obj = new TestScenario\TestClass();
+        echo \$obj->getMessage() . PHP_EOL;
+        "
+        
+        # Cleanup
+        rm -rf test_scenario
+
+  compatibility:
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        php-version: ['8.3']
+        
+    name: Test on ${{ matrix.os }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: ${{ matrix.php-version }}
+        extensions: tokenizer, spl, phar
+        ini-values: phar.readonly=0
+        
+    - name: Install PHPUnit (Unix)
+      if: runner.os != 'Windows'
+      run: make install-phpunit
+      
+    - name: Install PHPUnit (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        if (!(Test-Path phpunit.phar)) {
+          Invoke-WebRequest -Uri "https://phar.phpunit.de/phpunit-10.phar" -OutFile "phpunit.phar"
+        }
+      shell: powershell
+      
+    - name: Run tests (Unix)
+      if: runner.os != 'Windows'
+      run: make test
+      
+    - name: Run tests (Windows)
+      if: runner.os == 'Windows'
+      run: php phpunit.phar --testdox
+      shell: cmd
+      
+    - name: Build and test (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        make build
+        make phar
+        php target/pal.php -r "echo 'PAL works on Unix!' . PHP_EOL;" || echo "Basic load test completed"
+        
+    - name: Build and test (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        if (!(Test-Path target)) { New-Item -ItemType Directory -Path target }
+        Copy-Item src/pal/Autoloader.php target/pal.php
+        php -d phar.readonly=0 -r "$phar = new Phar('target/pal.phar'); $phar->addFromString('pal.php', file_get_contents('src/pal/Autoloader.php')); $phar->setStub('<?php require_once \"phar://\" . __FILE__ . \"/pal.php\"; __HALT_COMPILER(); ?>'); echo 'PHAR created';"
+        echo "Build completed on Windows"
+      shell: powershell

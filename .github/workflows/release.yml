@@ -1,0 +1,250 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+    name: Build and Upload Release Assets
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.3'
+        extensions: tokenizer, spl, phar
+        ini-values: phar.readonly=0
+        tools: composer
+        
+    - name: Validate release tag
+      run: |
+        echo "Release tag: ${{ github.event.release.tag_name }}"
+        echo "Release name: ${{ github.event.release.name }}"
+        
+    - name: Install PHPUnit and run tests
+      run: |
+        make install-phpunit
+        make test
+        
+    - name: Build pal.php
+      run: |
+        make clean
+        make build
+        ls -la target/
+        
+    - name: Build pal.phar
+      run: |
+        make phar
+        ls -la target/
+        
+    - name: Verify built files
+      run: |
+        # Verify pal.php
+        if [ ! -f target/pal.php ]; then
+          echo "ERROR: pal.php was not built"
+          exit 1
+        fi
+        
+        # Verify pal.phar
+        if [ ! -f target/pal.phar ]; then
+          echo "ERROR: pal.phar was not built"
+          exit 1
+        fi
+        
+        # Test basic functionality
+        php -r "require 'target/pal.php'; echo 'pal.php loads successfully' . PHP_EOL;"
+        php -r "require 'target/pal.phar'; echo 'pal.phar loads successfully' . PHP_EOL;"
+        
+        echo "Built files verification passed"
+        
+    - name: Create checksums
+      run: |
+        cd target
+        sha256sum pal.php > pal.php.sha256
+        sha256sum pal.phar > pal.phar.sha256
+        md5sum pal.php > pal.php.md5
+        md5sum pal.phar > pal.phar.md5
+        
+        echo "Checksums created:"
+        cat pal.php.sha256
+        cat pal.phar.sha256
+        
+    - name: Create release info
+      run: |
+        echo "# PAL Release ${{ github.event.release.tag_name }}" > release-info.md
+        echo "" >> release-info.md
+        echo "Built on: $(date -u)" >> release-info.md
+        echo "PHP Version: $(php -v | head -n1)" >> release-info.md
+        echo "Source commit: ${{ github.sha }}" >> release-info.md
+        echo "" >> release-info.md
+        echo "## Files" >> release-info.md
+        echo "- \`pal.php\`: Standalone autoloader ($(stat -f%z target/pal.php 2>/dev/null || stat -c%s target/pal.php) bytes)" >> release-info.md
+        echo "- \`pal.phar\`: PHAR archive ($(stat -f%z target/pal.phar 2>/dev/null || stat -c%s target/pal.phar) bytes)" >> release-info.md
+        echo "" >> release-info.md
+        echo "## Checksums" >> release-info.md
+        echo "\`\`\`" >> release-info.md
+        echo "SHA256:" >> release-info.md
+        cat target/pal.php.sha256 >> release-info.md
+        cat target/pal.phar.sha256 >> release-info.md
+        echo "" >> release-info.md
+        echo "MD5:" >> release-info.md
+        cat target/pal.php.md5 >> release-info.md
+        cat target/pal.phar.md5 >> release-info.md
+        echo "\`\`\`" >> release-info.md
+        
+    - name: Upload pal.php
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: target/pal.php
+        asset_name: pal.php
+        asset_content_type: text/x-php
+        
+    - name: Upload pal.phar
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: target/pal.phar
+        asset_name: pal.phar
+        asset_content_type: application/x-php-archive
+        
+    - name: Upload pal.php checksum
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: target/pal.php.sha256
+        asset_name: pal.php.sha256
+        asset_content_type: text/plain
+        
+    - name: Upload pal.phar checksum
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: target/pal.phar.sha256
+        asset_name: pal.phar.sha256
+        asset_content_type: text/plain
+        
+    - name: Upload release info
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: release-info.md
+        asset_name: release-info.md
+        asset_content_type: text/markdown
+
+  test-release-assets:
+    needs: build-and-upload
+    runs-on: ubuntu-latest
+    name: Test Release Assets
+    
+    steps:
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.3'
+        extensions: tokenizer, spl, phar
+        
+    - name: Download and test pal.php
+      run: |
+        # Wait a moment for asset to be available
+        sleep 10
+        
+        # Download pal.php
+        curl -L -H "Accept: application/octet-stream" \
+          -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          "https://api.github.com/repos/${{ github.repository }}/releases/${{ github.event.release.id }}/assets" \
+          | grep -o '"browser_download_url": "[^"]*pal\.php"' \
+          | cut -d'"' -f4 \
+          | xargs curl -L -o pal.php
+          
+        # Test it works
+        php -r "require 'pal.php'; echo 'Downloaded pal.php works!' . PHP_EOL;"
+        
+    - name: Download and test pal.phar
+      run: |
+        # Download pal.phar
+        curl -L -H "Accept: application/octet-stream" \
+          -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          "https://api.github.com/repos/${{ github.repository }}/releases/${{ github.event.release.id }}/assets" \
+          | grep -o '"browser_download_url": "[^"]*pal\.phar"' \
+          | cut -d'"' -f4 \
+          | xargs curl -L -o pal.phar
+          
+        # Test it works
+        php -r "require 'pal.phar'; echo 'Downloaded pal.phar works!' . PHP_EOL;"
+        
+    - name: Create test scenario
+      run: |
+        mkdir -p test_release/src
+        cat > test_release/src/ReleaseTest.php << 'EOF'
+        <?php
+        namespace ReleaseTest;
+        
+        class ReleaseTestClass {
+            public function getVersion(): string {
+                return '${{ github.event.release.tag_name }}';
+            }
+        }
+        EOF
+        
+        # Test with pal.php
+        php -r "
+        require 'pal.php';
+        \pal\Autoloader::autoload('test_release/src');
+        \$obj = new ReleaseTest\ReleaseTestClass();
+        echo 'Release test with pal.php: ' . \$obj->getVersion() . PHP_EOL;
+        "
+        
+        # Test with pal.phar
+        php -r "
+        require 'pal.phar';
+        \pal\Autoloader::autoload('test_release/src');
+        \$obj = new ReleaseTest\ReleaseTestClass();
+        echo 'Release test with pal.phar: ' . \$obj->getVersion() . PHP_EOL;
+        "
+        
+  create-package:
+    needs: build-and-upload
+    runs-on: ubuntu-latest
+    name: Create Distribution Package
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.3'
+        extensions: tokenizer, spl, phar
+        ini-values: phar.readonly=0
+        
+    - name: Build package
+      run: |
+        make package
+        ls -la pal.tar.gz
+        
+    - name: Upload package
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: pal.tar.gz
+        asset_name: pal-${{ github.event.release.tag_name }}.tar.gz
+        asset_content_type: application/gzip
