@@ -146,7 +146,7 @@ jobs:
         
     - name: PHP Syntax Check
       run: |
-        find . -name "*.php" -not -path "./vendor/*" -not -path "./target/*" -not -path "./.phpunit.cache/*" | xargs -I {} php -l {}
+        find . -name "*.php" -not -path "./vendor/*" -not -path "./target/*" -not -path "./.phpunit.cache/*" -not -path "./tests/fixtures/broken/*" | xargs -I {} php -l {}
         
     - name: Check file permissions
       run: |
