@@ -3,11 +3,17 @@ name: Release
 on:
   release:
     types: [published]
+  push:
+    tags:
+      - 'v*'
+      - '[0-9]+.[0-9]+.[0-9]+*'
 
 jobs:
   build-and-upload:
     runs-on: ubuntu-latest
     name: Build and Upload Release Assets
+    outputs:
+      tag_name: ${{ steps.release_vars.outputs.tag_name }}
     
     steps:
     - name: Checkout code
@@ -21,10 +27,26 @@ jobs:
         ini-values: phar.readonly=0
         tools: composer
         
-    - name: Validate release tag
+    - name: Set release variables
+      id: release_vars
       run: |
-        echo "Release tag: ${{ github.event.release.tag_name }}"
-        echo "Release name: ${{ github.event.release.name }}"
+        if [ "${{ github.event_name }}" = "release" ]; then
+          echo "tag_name=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          echo "release_name=${{ github.event.release.name }}" >> $GITHUB_OUTPUT
+          echo "is_release=true" >> $GITHUB_OUTPUT
+        else
+          # Handle tag push
+          tag_name=${GITHUB_REF#refs/tags/}
+          echo "tag_name=$tag_name" >> $GITHUB_OUTPUT
+          echo "release_name=Release $tag_name" >> $GITHUB_OUTPUT
+          echo "is_release=false" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: Validate release info
+      run: |
+        echo "Tag: ${{ steps.release_vars.outputs.tag_name }}"
+        echo "Name: ${{ steps.release_vars.outputs.release_name }}"
+        echo "Is Release Event: ${{ steps.release_vars.outputs.is_release }}"
         
     - name: Install PHPUnit and run tests
       run: |
@@ -76,7 +98,7 @@ jobs:
         
     - name: Create release info
       run: |
-        echo "# PAL Release ${{ github.event.release.tag_name }}" > release-info.md
+        echo "# PAL Release ${{ steps.release_vars.outputs.tag_name }}" > release-info.md
         echo "" >> release-info.md
         echo "Built on: $(date -u)" >> release-info.md
         echo "PHP Version: $(php -v | head -n1)" >> release-info.md
@@ -97,55 +119,48 @@ jobs:
         cat target/pal.phar.md5 >> release-info.md
         echo "\`\`\`" >> release-info.md
         
-    - name: Upload pal.php
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Upload release assets
+      uses: softprops/action-gh-release@v1
       with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_path: target/pal.php
-        asset_name: pal.php
-        asset_content_type: text/x-php
-        
-    - name: Upload pal.phar
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_path: target/pal.phar
-        asset_name: pal.phar
-        asset_content_type: application/x-php-archive
-        
-    - name: Upload pal.php checksum
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_path: target/pal.php.sha256
-        asset_name: pal.php.sha256
-        asset_content_type: text/plain
-        
-    - name: Upload pal.phar checksum
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_path: target/pal.phar.sha256
-        asset_name: pal.phar.sha256
-        asset_content_type: text/plain
-        
-    - name: Upload release info
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_path: release-info.md
-        asset_name: release-info.md
-        asset_content_type: text/markdown
+        files: |
+          target/pal.php
+          target/pal.phar
+          target/pal.php.sha256
+          target/pal.phar.sha256
+          target/pal.php.md5
+          target/pal.phar.md5
+          release-info.md
+        token: ${{ secrets.GITHUB_TOKEN }}
+        tag_name: ${{ steps.release_vars.outputs.tag_name }}
+        name: ${{ steps.release_vars.outputs.release_name }}
+        body: |
+          ## PAL Release ${{ steps.release_vars.outputs.tag_name }}
+          
+          This release includes:
+          - `pal.php`: Standalone autoloader file
+          - `pal.phar`: PHAR archive version
+          - Checksum files (SHA256 and MD5)
+          - Detailed release information
+          
+          Built with PHP 8.3+ on ${{ runner.os }}
+          
+          ### Usage
+          ```php
+          // Using pal.php
+          require 'pal.php';
+          \pal\Autoloader::autoload('/path/to/your/src');
+          
+          // Using pal.phar
+          require 'pal.phar';
+          \pal\Autoloader::autoload('/path/to/your/src');
+          ```
+          
+          ### Verification
+          Verify file integrity using the provided checksums:
+          ```bash
+          sha256sum -c pal.php.sha256
+          sha256sum -c pal.phar.sha256
+          ```
 
   test-release-assets:
     needs: build-and-upload
@@ -218,6 +233,47 @@ jobs:
         echo 'Release test with pal.phar: ' . \$obj->getVersion() . PHP_EOL;
         "
         
+    - name: Functional test with real autoloading scenario
+      run: |
+        # Create a more complex test scenario
+        mkdir -p complex_test/src/Models
+        mkdir -p complex_test/src/Services
+        
+        cat > complex_test/src/Models/User.php << 'EOF'
+        <?php
+        namespace App\Models;
+        
+        class User {
+            public function getName(): string {
+                return 'Test User';
+            }
+        }
+        EOF
+        
+        cat > complex_test/src/Services/UserService.php << 'EOF'
+        <?php
+        namespace App\Services;
+        
+        use App\Models\User;
+        
+        class UserService {
+            public function createUser(): User {
+                return new User();
+            }
+        }
+        EOF
+        
+        # Test complex autoloading with pal.php
+        php -r "
+        require 'pal.php';
+        \pal\Autoloader::autoload('complex_test/src');
+        \$service = new App\Services\UserService();
+        \$user = \$service->createUser();
+        echo 'Complex test passed: ' . \$user->getName() . PHP_EOL;
+        "
+        
+        rm -rf complex_test
+        
   create-package:
     needs: build-and-upload
     runs-on: ubuntu-latest
@@ -246,5 +302,5 @@ jobs:
       with:
         upload_url: ${{ github.event.release.upload_url }}
         asset_path: pal.tar.gz
-        asset_name: pal-${{ github.event.release.tag_name }}.tar.gz
+        asset_name: pal-${{ needs.build-and-upload.outputs.tag_name }}.tar.gz
         asset_content_type: application/gzip

@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ master, main, develop ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ master, main, develop ]
 
 jobs:
   test:
@@ -110,7 +110,24 @@ jobs:
         path: |
           target/pal.php
           target/pal.phar
-        retention-days: 30
+        retention-days: 90
+        
+    - name: Create checksums for artifacts
+      run: |
+        cd target
+        sha256sum pal.php > pal.php.sha256
+        sha256sum pal.phar > pal.phar.sha256
+        echo "Build checksums:"
+        cat pal.php.sha256
+        cat pal.phar.sha256
+        
+    - name: Upload checksums
+      uses: actions/upload-artifact@v4
+      with:
+        name: checksums-php-${{ matrix.php-version }}
+        path: |
+          target/*.sha256
+        retention-days: 90
 
   quality:
     runs-on: ubuntu-latest

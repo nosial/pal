@@ -22,6 +22,21 @@ PAL can be used simply by including/requiring the [`Autoloader.php`](src/Autoloa
 methods, additionally you can use the [`Makefile`](Makefile) to copy over the `Autoloader.php` file to the target
 directory as `pal.php` file or build a `pal.phar` file for easier distribution.
 
+You may also simply require `pal` remotely using one of the official repositories:
+
+```php
+# Github
+require 'https://raw.githubusercontent.com/nosial/pal/refs/heads/master/src/pal/Autoloader.php';
+
+# N64
+require 'https://git.n64.cc/Nosial/pal/raw/branch/master/src/pal/Autoloader.php';
+
+# Codeberg
+require 'https://codeberg.org/Nosial/pal/raw/branch/master/src/pal/Autoloader.php';
+```
+
+ > Note: Requiring remote files is not recommended for production use, it is better to download the file and include it, additionally for this feature to work the `allow_url_fopen` setting must be enabled in your `php.ini`.
+
 ### Autoloading a directory
 
 PAL expects a directory where the PHP source files are located, it will then scan the directory recursively and register an

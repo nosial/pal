@@ -1,0 +1,91 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: [ master ]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    name: Build and Test on Push
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.3'
+        extensions: tokenizer, spl, phar
+        ini-values: phar.readonly=0
+        coverage: xdebug
+        
+    - name: Cache PHPUnit
+      uses: actions/cache@v4
+      with:
+        path: phpunit.phar
+        key: phpunit-${{ runner.os }}
+        
+    - name: Install dependencies
+      run: make install-phpunit
+      
+    - name: Run tests
+      run: make ci-test
+      
+    - name: Build artifacts
+      run: |
+        make clean
+        make all
+        
+    - name: Verify build artifacts
+      run: |
+        # Test functionality
+        php -r "require 'target/pal.php'; echo 'pal.php: OK' . PHP_EOL;"
+        php -r "require 'target/pal.phar'; echo 'pal.phar: OK' . PHP_EOL;"
+        
+        # Test autoloader functionality
+        mkdir -p test_autoload/src
+        echo '<?php namespace Test; class TestClass { public function test() { return "works"; } }' > test_autoload/src/TestClass.php
+        
+        php -r "
+          require 'target/pal.php';
+          \pal\Autoloader::autoload('test_autoload/src');
+          \$obj = new Test\TestClass();
+          echo 'Autoloader test: ' . \$obj->test() . PHP_EOL;
+        "
+        
+        rm -rf test_autoload
+        
+    - name: Create build info
+      run: |
+        echo "## Build Information" > build-info.txt
+        echo "Date: $(date -u)" >> build-info.txt
+        echo "Commit: ${{ github.sha }}" >> build-info.txt
+        echo "PHP Version: $(php -v | head -n1)" >> build-info.txt
+        echo "Files built:" >> build-info.txt
+        ls -la target/ >> build-info.txt
+        
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: pal-build-${{ github.sha }}
+        path: |
+          target/pal.php
+          target/pal.phar
+          build-info.txt
+        retention-days: 30
+        
+    - name: Create package
+      run: make package
+      
+    - name: Upload package
+      uses: actions/upload-artifact@v4
+      with:
+        name: pal-package-${{ github.sha }}
+        path: pal.tar.gz
+        retention-days: 30
