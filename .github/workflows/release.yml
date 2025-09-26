@@ -173,6 +173,7 @@ jobs:
     needs: build-and-upload
     runs-on: ubuntu-latest
     name: Test Release Assets
+    if: github.event_name == 'release'
     
     steps:
     - name: Setup PHP
@@ -181,33 +182,31 @@ jobs:
         php-version: '8.3'
         extensions: tokenizer, spl, phar
         
-    - name: Download and test pal.php
+    - name: Download and test release assets
       run: |
-        # Wait a moment for asset to be available
-        sleep 10
+        # Wait a moment for assets to be available
+        sleep 15
+        
+        # Download assets using GitHub CLI or direct release API
+        TAG_NAME="${{ needs.build-and-upload.outputs.tag_name }}"
+        REPO="${{ github.repository }}"
         
         # Download pal.php
-        curl -L -H "Accept: application/octet-stream" \
-          -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-          "https://api.github.com/repos/${{ github.repository }}/releases/${{ github.event.release.id }}/assets" \
-          | grep -o '"browser_download_url": "[^"]*pal\.php"' \
-          | cut -d'"' -f4 \
-          | xargs curl -L -o pal.php
+        curl -L \
+          -H "Accept: application/octet-stream" \
+          -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          "https://github.com/${REPO}/releases/download/${TAG_NAME}/pal.php" \
+          -o pal.php
           
-        # Test it works
-        php -r "require 'pal.php'; echo 'Downloaded pal.php works!' . PHP_EOL;"
-        
-    - name: Download and test pal.phar
-      run: |
         # Download pal.phar
-        curl -L -H "Accept: application/octet-stream" \
-          -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-          "https://api.github.com/repos/${{ github.repository }}/releases/${{ github.event.release.id }}/assets" \
-          | grep -o '"browser_download_url": "[^"]*pal\.phar"' \
-          | cut -d'"' -f4 \
-          | xargs curl -L -o pal.phar
+        curl -L \
+          -H "Accept: application/octet-stream" \
+          -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          "https://github.com/${REPO}/releases/download/${TAG_NAME}/pal.phar" \
+          -o pal.phar
           
-        # Test it works
+        # Test they work
+        php -r "require 'pal.php'; echo 'Downloaded pal.php works!' . PHP_EOL;"
         php -r "require 'pal.phar'; echo 'Downloaded pal.phar works!' . PHP_EOL;"
         
     - name: Create test scenario
@@ -302,12 +301,10 @@ jobs:
         make package
         ls -la pal.tar.gz
         
-    - name: Upload package
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Upload package to release
+      uses: softprops/action-gh-release@v1
       with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_path: pal.tar.gz
-        asset_name: pal-${{ needs.build-and-upload.outputs.tag_name }}.tar.gz
-        asset_content_type: application/gzip
+        files: pal.tar.gz
+        token: ${{ secrets.GITHUB_TOKEN }}
+        tag_name: ${{ needs.build-and-upload.outputs.tag_name }}
+        name: Release ${{ needs.build-and-upload.outputs.tag_name }}
