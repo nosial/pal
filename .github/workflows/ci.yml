@@ -236,12 +236,17 @@ jobs:
       
     - name: Run tests (Unix)
       if: runner.os != 'Windows'
-      run: make test
+      run: |
+        if command -v phpunit >/dev/null 2>&1; then
+          phpunit --testdox
+        else
+          php phpunit.phar --testdox
+        fi
       
     - name: Run tests (Windows)
       if: runner.os == 'Windows'
       run: php phpunit.phar --testdox
-      shell: cmd
+      shell: powershell
       
     - name: Build and test (Unix)
       if: runner.os != 'Windows'

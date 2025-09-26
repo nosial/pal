@@ -59,7 +59,7 @@ class GeneratedAutoloaderTest extends TestCase
         // Include the generated autoloader in a separate process to avoid conflicts
         $testScript = $this->tempDir . '/test_generated.php';
         $testCode = '<?php
-        require_once "' . $autoloaderFile . '";
+        require_once ' . var_export($autoloaderFile, true) . ';
         
         // Test if classes can be loaded
         $class_exists = class_exists("GeneratedTest\\\\GeneratedClass", true);
