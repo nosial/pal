@@ -260,6 +260,6 @@ jobs:
       run: |
         if (!(Test-Path target)) { New-Item -ItemType Directory -Path target }
         Copy-Item src/pal/Autoloader.php target/pal.php
-        php -d phar.readonly=0 -r "$phar = new Phar('target/pal.phar'); $phar->addFromString('pal.php', file_get_contents('src/pal/Autoloader.php')); $phar->setStub('<?php require_once \"phar://\" . __FILE__ . \"/pal.php\"; __HALT_COMPILER(); ?>'); echo 'PHAR created';"
+        php -d phar.readonly=0 -r "`$phar = new Phar('target/pal.phar'); `$phar->addFromString('pal.php', file_get_contents('src/pal/Autoloader.php')); `$phar->setStub('<?php require_once `"phar://`" . __FILE__ . `"/pal.php`"; __HALT_COMPILER(); ?>'); echo 'PHAR created';"
         echo "Build completed on Windows"
       shell: powershell
