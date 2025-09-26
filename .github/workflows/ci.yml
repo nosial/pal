@@ -238,14 +238,14 @@ jobs:
       if: runner.os != 'Windows'
       run: |
         if command -v phpunit >/dev/null 2>&1; then
-          phpunit --testdox
+          phpunit --testdox --dont-report-useless-tests --no-coverage
         else
-          php phpunit.phar --testdox
+          php phpunit.phar --testdox --dont-report-useless-tests --no-coverage
         fi
       
     - name: Run tests (Windows)
       if: runner.os == 'Windows'
-      run: php phpunit.phar --testdox
+      run: php phpunit.phar --testdox --dont-report-useless-tests --no-coverage
       shell: powershell
       
     - name: Build and test (Unix)
