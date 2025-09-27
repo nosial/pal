@@ -405,7 +405,8 @@ class AutoloaderTest extends TestCase
         // The mapping should always contain absolute paths for runtime use
         $filePath = $mapping['ArrayTest\\ArrayClass'];
         $this->assertTrue($this->isAbsolutePath($filePath), 'Path should be absolute');
-        $this->assertStringContainsString($testDir, $filePath);
+
+        $this->assertStringContainsString(str_replace('\\', '/', $testDir), str_replace('\\', '/', $filePath));
         $this->assertTrue(file_exists($filePath));
     }
 }
