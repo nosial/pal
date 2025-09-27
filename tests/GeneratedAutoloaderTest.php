@@ -52,8 +52,8 @@ class GeneratedAutoloaderTest extends TestCase
         $autoloaderCode = Autoloader::generateAutoloader($testDir);
         $this->assertIsString($autoloaderCode);
         
-        // Save the generated autoloader
-        $autoloaderFile = $this->tempDir . '/generated_autoloader.php';
+        // Save the generated autoloader in the same directory as the classes
+        $autoloaderFile = $testDir . '/autoloader.php';
         file_put_contents($autoloaderFile, $autoloaderCode);
         
         // Include the generated autoloader in a separate process to avoid conflicts
@@ -193,5 +193,273 @@ class GeneratedAutoloaderTest extends TestCase
         }
         
         rmdir($dir);
+    }
+
+    public function testGeneratedAutoloaderWithRelativePaths(): void
+    {
+        // Create test directory structure
+        $testDir = $this->tempDir . '/relative_test';
+        mkdir($testDir, 0755, true);
+        
+        $subDir = $testDir . '/SubPackage';
+        mkdir($subDir, 0755, true);
+        
+        // Create test classes
+        $mainClassContent = '<?php
+        namespace RelativeTest;
+        
+        class MainClass {
+            public function getMessage() {
+                return "Main class loaded with relative paths!";
+            }
+        }';
+        
+        $subClassContent = '<?php
+        namespace RelativeTest\\SubPackage;
+        
+        class SubClass {
+            public function getMessage() {
+                return "Sub class loaded with relative paths!";
+            }
+        }';
+        
+        file_put_contents($testDir . '/MainClass.php', $mainClassContent);
+        file_put_contents($subDir . '/SubClass.php', $subClassContent);
+        
+        // Generate autoloader with relative paths (default behavior)
+        $autoloaderCode = Autoloader::generateAutoloader($testDir);
+        $this->assertIsString($autoloaderCode);
+        
+        // Verify that the generated code contains __DIR__ instead of absolute paths
+        $this->assertStringContainsString('__DIR__', $autoloaderCode);
+        $this->assertStringNotContainsString($testDir, $autoloaderCode);
+        
+        // Save the generated autoloader in the same directory where the classes are
+        $autoloaderFile = $testDir . '/autoloader.php';
+        file_put_contents($autoloaderFile, $autoloaderCode);
+        
+        // Test the autoloader in a separate process
+        $testScript = $this->tempDir . '/test_relative.php';
+        $testCode = '<?php
+        require_once ' . var_export($autoloaderFile, true) . ';
+        
+        // Test if classes can be loaded
+        $main_exists = class_exists("RelativeTest\\\\MainClass", true);
+        $sub_exists = class_exists("RelativeTest\\\\SubPackage\\\\SubClass", true);
+        
+        if ($main_exists && $sub_exists) {
+            $mainInstance = new RelativeTest\\MainClass();
+            $subInstance = new RelativeTest\\SubPackage\\SubClass();
+            echo $mainInstance->getMessage() . "|" . $subInstance->getMessage();
+            exit(0);
+        } else {
+            exit(1);
+        }';
+        
+        file_put_contents($testScript, $testCode);
+        
+        // Execute the test script
+        ob_start();
+        $exitCode = 0;
+        $output = [];
+        
+        exec("php " . escapeshellarg($testScript), $output, $exitCode);
+        ob_end_clean();
+        
+        $this->assertEquals(0, $exitCode, 'Relative path autoloader should work correctly');
+        $this->assertStringContainsString('Main class loaded with relative paths!', implode('', $output));
+        $this->assertStringContainsString('Sub class loaded with relative paths!', implode('', $output));
+    }
+
+    public function testGeneratedAutoloaderWithAbsolutePaths(): void
+    {
+        // Create test directory structure
+        $testDir = $this->tempDir . '/absolute_test';
+        mkdir($testDir, 0755, true);
+        
+        // Create test class
+        $classContent = '<?php
+        namespace AbsoluteTest;
+        
+        class AbsoluteClass {
+            public function getMessage() {
+                return "Absolute path works!";
+            }
+        }';
+        
+        file_put_contents($testDir . '/AbsoluteClass.php', $classContent);
+        
+        // Generate autoloader with absolute paths
+        $autoloaderCode = Autoloader::generateAutoloader($testDir, ['relative' => false]);
+        $this->assertIsString($autoloaderCode);
+        
+        // Verify that the generated code contains absolute paths and no __DIR__
+        $this->assertStringNotContainsString('__DIR__', $autoloaderCode);
+        $this->assertStringContainsString($testDir, $autoloaderCode);
+        
+        // Save the generated autoloader in the same directory where the classes are
+        $autoloaderFile = $testDir . '/autoloader.php';
+        file_put_contents($autoloaderFile, $autoloaderCode);
+        
+        // Test the autoloader
+        $testScript = $this->tempDir . '/test_absolute.php';
+        $testCode = '<?php
+        require_once ' . var_export($autoloaderFile, true) . ';
+        
+        if (class_exists("AbsoluteTest\\\\AbsoluteClass", true)) {
+            $instance = new AbsoluteTest\\AbsoluteClass();
+            echo $instance->getMessage();
+            exit(0);
+        } else {
+            exit(1);
+        }';
+        
+        file_put_contents($testScript, $testCode);
+        
+        // Execute the test script
+        ob_start();
+        $exitCode = 0;
+        $output = [];
+        
+        exec("php " . escapeshellarg($testScript), $output, $exitCode);
+        ob_end_clean();
+        
+        $this->assertEquals(0, $exitCode, 'Absolute path autoloader should work correctly');
+        $this->assertStringContainsString('Absolute path works!', implode('', $output));
+    }
+
+    public function testRelativePathAutoloaderMovedCompletely(): void
+    {
+        // Create test directory structure
+        $originalDir = $this->tempDir . '/original_moveable_test';
+        mkdir($originalDir, 0755, true);
+        
+        // Create test class
+        $classContent = '<?php
+        namespace MoveableTest;
+        
+        class MoveableClass {
+            public function getMessage() {
+                return "Moved autoloader works!";
+            }
+        }';
+        
+        file_put_contents($originalDir . '/MoveableClass.php', $classContent);
+        
+        // Generate autoloader with relative paths
+        $autoloaderCode = Autoloader::generateAutoloader($originalDir);
+        $this->assertIsString($autoloaderCode);
+        
+        // Save the autoloader in the original directory
+        $originalAutoloaderFile = $originalDir . '/autoloader.php';
+        file_put_contents($originalAutoloaderFile, $autoloaderCode);
+        
+        // Move the ENTIRE directory structure to a new location
+        $movedDir = $this->tempDir . '/moved_complete';
+        rename($originalDir, $movedDir);
+        
+        // Test that the autoloader works from the new location
+        $testScript = $this->tempDir . '/test_moved.php';
+        $testCode = '<?php
+        require_once ' . var_export($movedDir . '/autoloader.php', true) . ';
+        
+        if (class_exists("MoveableTest\\\\MoveableClass", true)) {
+            $instance = new MoveableTest\\MoveableClass();
+            echo $instance->getMessage();
+            exit(0);
+        } else {
+            exit(1);
+        }';
+        
+        file_put_contents($testScript, $testCode);
+        
+        // Execute the test script
+        ob_start();
+        $exitCode = 0;
+        $output = [];
+        
+        exec("php " . escapeshellarg($testScript), $output, $exitCode);
+        ob_end_clean();
+        
+        $this->assertEquals(0, $exitCode, 'Completely moved relative path autoloader should work correctly');
+        $this->assertStringContainsString('Moved autoloader works!', implode('', $output));
+    }
+
+    public function testRelativePathCalculation(): void
+    {
+        // Test with complex directory structure
+        $baseDir = $this->tempDir . '/complex_test';
+        $libDir = $baseDir . '/lib';
+        $deepDir = $libDir . '/deep/nested';
+        
+        mkdir($deepDir, 0755, true);
+        
+        // Create classes at different levels
+        $baseClassContent = '<?php
+        namespace ComplexTest;
+        class BaseClass { public function test() { return "base"; } }';
+        
+        $libClassContent = '<?php
+        namespace ComplexTest\\Lib;
+        class LibClass { public function test() { return "lib"; } }';
+        
+        $deepClassContent = '<?php
+        namespace ComplexTest\\Lib\\Deep\\Nested;
+        class DeepClass { public function test() { return "deep"; } }';
+        
+        file_put_contents($baseDir . '/BaseClass.php', $baseClassContent);
+        file_put_contents($libDir . '/LibClass.php', $libClassContent);
+        file_put_contents($deepDir . '/DeepClass.php', $deepClassContent);
+        
+        // Generate autoloader with relative paths
+        $autoloaderCode = Autoloader::generateAutoloader($baseDir);
+        $this->assertIsString($autoloaderCode);
+        
+        // Verify relative path structure
+        $this->assertStringContainsString('__DIR__ . \'/BaseClass.php\'', $autoloaderCode);
+        $this->assertStringContainsString('__DIR__ . \'/lib/LibClass.php\'', $autoloaderCode);
+        $this->assertStringContainsString('__DIR__ . \'/lib/deep/nested/DeepClass.php\'', $autoloaderCode);
+        
+        // Test functionality
+        $autoloaderFile = $baseDir . '/autoloader.php';
+        file_put_contents($autoloaderFile, $autoloaderCode);
+        
+        $testScript = $this->tempDir . '/test_complex.php';
+        $testCode = '<?php
+        require_once ' . var_export($autoloaderFile, true) . ';
+        
+        $results = [];
+        if (class_exists("ComplexTest\\\\BaseClass", true)) {
+            $instance = new ComplexTest\\BaseClass();
+            $results[] = $instance->test();
+        }
+        if (class_exists("ComplexTest\\\\Lib\\\\LibClass", true)) {
+            $instance = new ComplexTest\\Lib\\LibClass();
+            $results[] = $instance->test();
+        }
+        if (class_exists("ComplexTest\\\\Lib\\\\Deep\\\\Nested\\\\DeepClass", true)) {
+            $instance = new ComplexTest\\Lib\\Deep\\Nested\\DeepClass();
+            $results[] = $instance->test();
+        }
+        
+        if (count($results) === 3) {
+            echo implode("|", $results);
+            exit(0);
+        } else {
+            exit(1);
+        }';
+        
+        file_put_contents($testScript, $testCode);
+        
+        // Execute the test script
+        ob_start();
+        $exitCode = 0;
+        $output = [];
+        
+        exec("php " . escapeshellarg($testScript), $output, $exitCode);
+        ob_end_clean();
+        
+        $this->assertEquals(0, $exitCode, 'Complex relative path autoloader should work correctly');
+        $this->assertStringContainsString('base|lib|deep', implode('', $output));
     }
 }

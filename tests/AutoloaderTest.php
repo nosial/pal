@@ -334,4 +334,60 @@ class AutoloaderTest extends TestCase
         
         rmdir($dir);
     }
+
+    public function testInMemoryAutoloadingNotAffectedByRelativeOption(): void
+    {
+        // Create test directory and class
+        $testDir = $this->tempDir . '/inmemory_test';
+        mkdir($testDir, 0755, true);
+        
+        $classContent = '<?php
+        namespace InMemoryTest;
+        
+        class InMemoryClass {
+            public function getMessage() {
+                return "In-memory autoloading works!";
+            }
+        }';
+        
+        file_put_contents($testDir . '/InMemoryClass.php', $classContent);
+        
+        // Register autoloader with relative option (should not affect in-memory behavior)
+        $result = Autoloader::autoload($testDir, ['relative' => true]);
+        $this->assertTrue($result, 'Autoloader should register successfully');
+        
+        // Test that in-memory autoloading works normally
+        $this->assertTrue(class_exists('InMemoryTest\\InMemoryClass'), 'Class should be autoloaded normally');
+        
+        $instance = new \InMemoryTest\InMemoryClass();
+        $this->assertEquals('In-memory autoloading works!', $instance->getMessage());
+        
+        // Clean up
+        Autoloader::unregisterAll();
+    }
+
+    public function testGenerateAutoloaderArrayNotAffectedByRelativeOption(): void
+    {
+        // Create test directory
+        $testDir = $this->tempDir . '/array_test';
+        mkdir($testDir, 0755, true);
+        
+        $classContent = '<?php
+        namespace ArrayTest;
+        class ArrayClass {}';
+        
+        file_put_contents($testDir . '/ArrayClass.php', $classContent);
+        
+        // Generate array mapping (should always return absolute paths regardless of options)
+        $mapping = Autoloader::generateAutoloaderArray($testDir, ['relative' => true]);
+        
+        $this->assertIsArray($mapping);
+        $this->assertArrayHasKey('ArrayTest\\ArrayClass', $mapping);
+        
+        // The mapping should always contain absolute paths for runtime use
+        $filePath = $mapping['ArrayTest\\ArrayClass'];
+        $this->assertStringStartsWith('/', $filePath); // Should be absolute path
+        $this->assertStringContainsString($testDir, $filePath);
+        $this->assertTrue(file_exists($filePath));
+    }
 }

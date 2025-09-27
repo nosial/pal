@@ -130,7 +130,8 @@
          *     follow_symlinks?: bool,
          *     prepend?: bool,
          *     namespace?: string,
-         *     class_name?: string
+         *     class_name?: string,
+         *     relative?: bool
          * } $options Configuration options for the autoloader generation
          * @return string|false The generated PHP autoloader source code, or false on failure
          */
@@ -165,12 +166,13 @@
                     'case_sensitive' => false,
                     'prepend' => false,
                     'namespace' => '',
-                    'class_name' => 'Autoloader'
+                    'class_name' => 'Autoloader',
+                    'relative' => true
                 ];
                 $options = array_merge($defaultOptions, $options);
 
                 // Generate the PHP source code
-                return self::buildAutoloaderSource($mapping, $options);
+                return self::buildAutoloaderSource($mapping, $options, $directoryPath);
 
             }
             catch (Exception $e)
@@ -274,23 +276,27 @@
          *     case_sensitive: bool,
          *     prepend: bool,
          *     namespace: string,
-         *     class_name: string
+         *     class_name: string,
+         *     relative: bool
          * } $options Configuration options for code generation
+         * @param string $directoryPath The base directory path for relative path calculations
          * @return string The complete PHP autoloader source code
          */
-        private static function buildAutoloaderSource(array $mapping, array $options): string
+        private static function buildAutoloaderSource(array $mapping, array $options, string $directoryPath): string
         {
             $caseInsensitive = !$options['case_sensitive'];
             $prepend = $options['prepend'];
+            $relative = $options['relative'];
 
             // Build the mapping array as PHP code
-            $mappingCode = self::buildMappingArrayCode($mapping);
+            $mappingCode = self::buildMappingArrayCode($mapping, $relative, $directoryPath);
 
             // Generate timestamp and metadata
             $timestamp = date('Y-m-d H:i:s');
             $classCount = count($mapping);
             $caseInsensitiveText = $caseInsensitive ? 'true' : 'false';
             $prependText = $prepend ? 'true' : 'false';
+            $relativeText = $relative ? 'true' : 'false';
 
             // Generate a unique autoloader ID to avoid conflicts
             $autoloaderId = 'pal_' . md5(serialize($mapping) . microtime(true));
@@ -305,6 +311,7 @@
  * Total classes: {$classCount}
  * Case insensitive: {$caseInsensitiveText}
  * Prepend: {$prependText}
+ * Relative paths: {$relativeText}
  * 
  * Usage: Simply require or include this file to register the autoloader
  * 
@@ -382,9 +389,11 @@ PHP;
          * formatted PHP array definition string that can be embedded in source code.
          *
          * @param array<string, string> $mapping The mapping array to convert
+         * @param bool $relative Whether to use relative paths with __DIR__
+         * @param string $baseDirectory The base directory for relative path calculations
          * @return string PHP array code representation
          */
-        private static function buildMappingArrayCode(array $mapping): string
+        private static function buildMappingArrayCode(array $mapping, bool $relative = false, string $baseDirectory = ''): string
         {
             if (empty($mapping))
             {
@@ -396,12 +405,99 @@ PHP;
             foreach ($mapping as $className => $filePath)
             {
                 $escapedClass = addslashes($className);
-                $escapedPath = addslashes($filePath);
-                $lines[] = "        '{$escapedClass}' => '{$escapedPath}',";
+                
+                if ($relative && $baseDirectory !== '')
+                {
+                    // Convert absolute path to relative path using __DIR__
+                    $realBase = realpath($baseDirectory);
+                    $realFile = realpath($filePath);
+                    
+                    if ($realBase !== false && $realFile !== false)
+                    {
+                        // Get relative path from base directory to file
+                        $relativePath = self::getRelativePath($realBase, $realFile);
+                        
+                        // Format as __DIR__ . 'relative/path'
+                        $escapedPath = addslashes($relativePath);
+                        $lines[] = "        '{$escapedClass}' => __DIR__ . '{$escapedPath}',";
+                    }
+                    else
+                    {
+                        // Fallback to absolute path if unable to calculate relative path
+                        $escapedPath = addslashes($filePath);
+                        $lines[] = "        '{$escapedClass}' => '{$escapedPath}',";
+                    }
+                }
+                else
+                {
+                    // Use absolute path
+                    $escapedPath = addslashes($filePath);
+                    $lines[] = "        '{$escapedClass}' => '{$escapedPath}',";
+                }
             }
 
             $lines[] = "    ]";
             return implode("\n", $lines);
+        }
+
+        /**
+         * Calculates the relative path from a base directory to a target file
+         *
+         * Computes the relative path needed to reach the target file from the base
+         * directory. The result includes the leading separator for use with __DIR__.
+         *
+         * @param string $baseDir The base directory (should be absolute)
+         * @param string $targetFile The target file path (should be absolute)
+         * @return string The relative path from base to target, starting with separator
+         */
+        private static function getRelativePath(string $baseDir, string $targetFile): string
+        {
+            // Normalize paths to use forward slashes
+            $baseDir = str_replace('\\', '/', rtrim($baseDir, '/'));
+            $targetFile = str_replace('\\', '/', $targetFile);
+            
+            // Split paths into arrays
+            $baseParts = explode('/', $baseDir);
+            $targetParts = explode('/', dirname($targetFile));
+            $fileName = basename($targetFile);
+            
+            // Find common path length
+            $commonLength = 0;
+            $minLength = min(count($baseParts), count($targetParts));
+            
+            for ($i = 0; $i < $minLength; $i++)
+            {
+                if ($baseParts[$i] === $targetParts[$i])
+                {
+                    $commonLength++;
+                }
+                else
+                {
+                    break;
+                }
+            }
+            
+            // Calculate the relative path
+            $relativeParts = [];
+            
+            // Add .. for each directory we need to go up from base
+            $upLevels = count($baseParts) - $commonLength;
+            for ($i = 0; $i < $upLevels; $i++)
+            {
+                $relativeParts[] = '..';
+            }
+            
+            // Add the remaining path parts to target
+            for ($i = $commonLength; $i < count($targetParts); $i++)
+            {
+                $relativeParts[] = $targetParts[$i];
+            }
+            
+            // Add the filename
+            $relativeParts[] = $fileName;
+            
+            // Return the relative path with leading separator
+            return '/' . implode('/', $relativeParts);
         }
 
         /**
