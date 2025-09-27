@@ -721,7 +721,7 @@ PHP;
          * @param string $filePath The absolute path to the PHP file to parse
          * @return string[] Array of fully qualified class names found in the file
          */
-        private static function parseSourceFilnuee(string $filePath): array
+        private static function parseSourceFile(string $filePath): array
         {
             // Safe file reading with error handling
             $content = @file_get_contents($filePath);
