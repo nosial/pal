@@ -424,14 +424,17 @@ PHP;
                     else
                     {
                         // Fallback to absolute path if unable to calculate relative path
-                        $escapedPath = addslashes($filePath);
+                        // Normalize separators to forward slashes
+                        $normalizedPath = str_replace('\\', '/', $filePath);
+                        $escapedPath = addslashes($normalizedPath);
                         $lines[] = "        '{$escapedClass}' => '{$escapedPath}',";
                     }
                 }
                 else
                 {
-                    // Use absolute path
-                    $escapedPath = addslashes($filePath);
+                    // Use absolute path - normalize separators to forward slashes
+                    $normalizedPath = str_replace('\\', '/', $filePath);
+                    $escapedPath = addslashes($normalizedPath);
                     $lines[] = "        '{$escapedClass}' => '{$escapedPath}',";
                 }
             }

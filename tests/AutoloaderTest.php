@@ -335,6 +335,24 @@ class AutoloaderTest extends TestCase
         rmdir($dir);
     }
 
+    /**
+     * Check if a path is absolute (cross-platform)
+     */
+    private function isAbsolutePath(string $path): bool
+    {
+        // Unix/Linux: starts with /
+        if (substr($path, 0, 1) === '/') {
+            return true;
+        }
+        
+        // Windows: starts with drive letter like C:\ or C:/
+        if (PHP_OS_FAMILY === 'Windows' && preg_match('/^[A-Za-z]:[\/\\\\]/', $path)) {
+            return true;
+        }
+        
+        return false;
+    }
+
     public function testInMemoryAutoloadingNotAffectedByRelativeOption(): void
     {
         // Create test directory and class
@@ -386,7 +404,7 @@ class AutoloaderTest extends TestCase
         
         // The mapping should always contain absolute paths for runtime use
         $filePath = $mapping['ArrayTest\\ArrayClass'];
-        $this->assertStringStartsWith('/', $filePath); // Should be absolute path
+        $this->assertTrue($this->isAbsolutePath($filePath), 'Path should be absolute');
         $this->assertStringContainsString($testDir, $filePath);
         $this->assertTrue(file_exists($filePath));
     }

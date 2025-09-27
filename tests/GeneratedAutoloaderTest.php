@@ -295,7 +295,11 @@ class GeneratedAutoloaderTest extends TestCase
         
         // Verify that the generated code contains absolute paths and no __DIR__
         $this->assertStringNotContainsString('__DIR__', $autoloaderCode);
-        $this->assertStringContainsString($testDir, $autoloaderCode);
+        
+        // Normalize paths for cross-platform comparison
+        $normalizedTestDir = str_replace('\\', '/', $testDir);
+        $normalizedAutoloaderCode = str_replace('\\', '/', $autoloaderCode);
+        $this->assertStringContainsString($normalizedTestDir, $normalizedAutoloaderCode);
         
         // Save the generated autoloader in the same directory where the classes are
         $autoloaderFile = $testDir . '/autoloader.php';
