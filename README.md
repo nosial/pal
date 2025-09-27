@@ -106,6 +106,7 @@ $autoloaderCode = \pal\Autoloader::generateAutoloader('/example/src', [
     'case_sensitive' => false, // make class name matching case insensitive
     'follow_symlinks' => true, // follow symbolic links when scanning directories
     'prepend' => false, // prepend the autoloader to the autoload stack, default: false (append)
+    'relative' => true, // use relative paths in the generated autoloader, default: true
 ]);
 ```
 
