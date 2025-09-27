@@ -129,8 +129,6 @@
          *     case_sensitive?: bool,
          *     follow_symlinks?: bool,
          *     prepend?: bool,
-         *     namespace?: string,
-         *     class_name?: string,
          *     relative?: bool
          * } $options Configuration options for the autoloader generation
          * @return string|false The generated PHP autoloader source code, or false on failure
@@ -165,8 +163,6 @@
                 $defaultOptions = [
                     'case_sensitive' => false,
                     'prepend' => false,
-                    'namespace' => '',
-                    'class_name' => 'Autoloader',
                     'relative' => true
                 ];
                 $options = array_merge($defaultOptions, $options);
@@ -275,8 +271,6 @@
          * @param array{
          *     case_sensitive: bool,
          *     prepend: bool,
-         *     namespace: string,
-         *     class_name: string,
          *     relative: bool
          * } $options Configuration options for code generation
          * @param string $directoryPath The base directory path for relative path calculations
@@ -1163,7 +1157,6 @@ PHP;
          *     follow_symlinks?: bool,
          *     prepend?: bool,
          *     namespace?: string,
-         *     class_name?: string
          * } $options Configuration options for the autoloader generation
          * @return string|false The generated PHP autoloader source code, or false on failure
          */
