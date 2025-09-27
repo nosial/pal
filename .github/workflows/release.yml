@@ -89,6 +89,11 @@ jobs:
         
         echo "Built files verification passed"
         
+    - name: Create package
+      run: |
+        make package
+        ls -la pal.tar.gz
+        
     - name: Create checksums
       run: |
         cd target
@@ -100,11 +105,6 @@ jobs:
         echo "Checksums created:"
         cat pal.php.sha256
         cat pal.phar.sha256
-        
-    - name: Create package
-      run: |
-        make package
-        ls -la pal.tar.gz
         
     - name: Create release info
       run: |
