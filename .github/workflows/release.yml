@@ -101,6 +101,11 @@ jobs:
         cat pal.php.sha256
         cat pal.phar.sha256
         
+    - name: Create package
+      run: |
+        make package
+        ls -la pal.tar.gz
+        
     - name: Create release info
       run: |
         echo "# PAL Release ${{ steps.release_vars.outputs.tag_name }}" > release-info.md
@@ -112,16 +117,13 @@ jobs:
         echo "## Files" >> release-info.md
         echo "- \`pal.php\`: Standalone autoloader ($(stat -f%z target/pal.php 2>/dev/null || stat -c%s target/pal.php) bytes)" >> release-info.md
         echo "- \`pal.phar\`: PHAR archive ($(stat -f%z target/pal.phar 2>/dev/null || stat -c%s target/pal.phar) bytes)" >> release-info.md
+        echo "- \`pal.tar.gz\`: Distribution package ($(stat -f%z pal.tar.gz 2>/dev/null || stat -c%s pal.tar.gz) bytes)" >> release-info.md
         echo "" >> release-info.md
         echo "## Checksums" >> release-info.md
         echo "\`\`\`" >> release-info.md
         echo "SHA256:" >> release-info.md
         cat target/pal.php.sha256 >> release-info.md
         cat target/pal.phar.sha256 >> release-info.md
-        echo "" >> release-info.md
-        echo "MD5:" >> release-info.md
-        cat target/pal.php.md5 >> release-info.md
-        cat target/pal.phar.md5 >> release-info.md
         echo "\`\`\`" >> release-info.md
         
     - name: Upload release assets
@@ -134,6 +136,7 @@ jobs:
           target/pal.phar.sha256
           target/pal.php.md5
           target/pal.phar.md5
+          pal.tar.gz
           release-info.md
         token: ${{ secrets.GITHUB_TOKEN }}
         tag_name: ${{ steps.release_vars.outputs.tag_name }}
@@ -146,6 +149,7 @@ jobs:
           This release includes:
           - `pal.php`: Standalone autoloader file
           - `pal.phar`: PHAR archive version
+          - `pal.tar.gz`: Distribution package containing both files
           - Checksum files (SHA256 and MD5)
           - Detailed release information
           
@@ -279,32 +283,3 @@ jobs:
         "
         
         rm -rf complex_test
-        
-  create-package:
-    needs: build-and-upload
-    runs-on: ubuntu-latest
-    name: Create Distribution Package
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Setup PHP
-      uses: shivammathur/setup-php@v2
-      with:
-        php-version: '8.3'
-        extensions: tokenizer, spl, phar
-        ini-values: phar.readonly=0
-        
-    - name: Build package
-      run: |
-        make package
-        ls -la pal.tar.gz
-        
-    - name: Upload package to release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: pal.tar.gz
-        token: ${{ secrets.GITHUB_TOKEN }}
-        tag_name: ${{ needs.build-and-upload.outputs.tag_name }}
-        name: Release ${{ needs.build-and-upload.outputs.tag_name }}
