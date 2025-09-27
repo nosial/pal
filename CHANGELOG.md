@@ -5,6 +5,9 @@ This release corrects some changes
 ### Removed
  - Removed unused options such as `namespace` and `class` for generating an autoloader
 
+### Changed
+ - Code cleanup
+
 
 ## [1.0.1] - 2025-09-26
 

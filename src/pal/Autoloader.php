@@ -316,15 +316,15 @@
  */
 
 // Prevent multiple registrations of the same autoloader
-if (!defined('{$autoloaderId}')) 
+if (!defined('$autoloaderId')) 
 {
-    define('{$autoloaderId}', true);
+    define('$autoloaderId', true);
     
     // Class to file mapping
-    \$GLOBALS['{$autoloaderId}_mapping'] = {$mappingCode};
+    \$GLOBALS['{$autoloaderId}_mapping'] = $mappingCode;
     
     // Configuration
-    \$GLOBALS['{$autoloaderId}_case_insensitive'] = {$caseInsensitiveText};
+    \$GLOBALS['{$autoloaderId}_case_insensitive'] = $caseInsensitiveText;
     
     // Autoloader function
     \$GLOBALS['{$autoloaderId}_loader'] = function(\$className) 
@@ -370,7 +370,7 @@ if (!defined('{$autoloaderId}'))
     };
     
     // Register the autoloader
-    spl_autoload_register(\$GLOBALS['{$autoloaderId}_loader'], true, {$prependText});
+    spl_autoload_register(\$GLOBALS['{$autoloaderId}_loader'], true, $prependText);
 }
 PHP;
         }
@@ -413,7 +413,7 @@ PHP;
                         
                         // Format as __DIR__ . 'relative/path'
                         $escapedPath = addslashes($relativePath);
-                        $lines[] = "        '{$escapedClass}' => __DIR__ . '{$escapedPath}',";
+                        $lines[] = "        '$escapedClass' => __DIR__ . '$escapedPath',";
                     }
                     else
                     {
@@ -421,7 +421,7 @@ PHP;
                         // Normalize separators to forward slashes
                         $normalizedPath = str_replace('\\', '/', $filePath);
                         $escapedPath = addslashes($normalizedPath);
-                        $lines[] = "        '{$escapedClass}' => '{$escapedPath}',";
+                        $lines[] = "        '$escapedClass' => '$escapedPath',";
                     }
                 }
                 else
@@ -429,7 +429,7 @@ PHP;
                     // Use absolute path - normalize separators to forward slashes
                     $normalizedPath = str_replace('\\', '/', $filePath);
                     $escapedPath = addslashes($normalizedPath);
-                    $lines[] = "        '{$escapedClass}' => '{$escapedPath}',";
+                    $lines[] = "        '$escapedClass' => '$escapedPath',";
                 }
             }
 
