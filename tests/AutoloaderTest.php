@@ -437,9 +437,6 @@ class AutoloaderTest extends TestCase
         $staticDir = $this->fixturesDir . '/static';
         
         // Record initial function state
-        $initialFunctionOneState = function_exists('pal_test_function_one');
-        $initialNamespacedState = function_exists('TestNamespace\\pal_test_namespaced_function');
-        
         $result = Autoloader::autoload($staticDir, [
             'include_static' => true
         ]);
