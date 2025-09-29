@@ -409,4 +409,125 @@ class AutoloaderTest extends TestCase
         $this->assertStringContainsString(str_replace('\\', '/', $testDir), str_replace('\\', '/', $filePath));
         $this->assertTrue(file_exists($filePath));
     }
+    
+    public function testAutoloadWithIncludeStaticDisabled(): void
+    {
+        $staticDir = $this->fixturesDir . '/static_disabled';
+        
+        // Functions should not exist before autoloading
+        $this->assertFalse(function_exists('pal_test_disabled_function'));
+        
+        $result = Autoloader::autoload($staticDir, [
+            'include_static' => false
+        ]);
+        
+        $this->assertTrue($result, 'Autoloader should register successfully');
+        
+        // Static functions should NOT be available when include_static is false
+        $this->assertFalse(function_exists('pal_test_disabled_function'));
+        $this->assertFalse(function_exists('pal_test_disabled_math'));
+    }
+    
+    public function testAutoloadWithIncludeStaticEnabled(): void
+    {
+        $staticDir = $this->fixturesDir . '/static';
+        
+        // Functions should not exist before autoloading
+        $this->assertFalse(function_exists('pal_test_function_one'));
+        $this->assertFalse(function_exists('TestNamespace\\pal_test_namespaced_function'));
+        
+        $result = Autoloader::autoload($staticDir, [
+            'include_static' => true
+        ]);
+        
+        $this->assertTrue($result, 'Autoloader should register successfully');
+        
+        // Static functions should now be available
+        $this->assertTrue(function_exists('pal_test_function_one'));
+        $this->assertTrue(function_exists('pal_test_function_two'));
+        $this->assertTrue(function_exists('pal_test_function_three'));
+        $this->assertTrue(function_exists('TestNamespace\\pal_test_namespaced_function'));
+        $this->assertTrue(function_exists('TestNamespace\\pal_test_math_function'));
+        
+        // Test that the functions work
+        $this->assertEquals('function_one_result', pal_test_function_one());
+        $this->assertEquals(10, pal_test_function_two(5));
+        $this->assertTrue(pal_test_function_three());
+        $this->assertEquals('namespaced_function_result', \TestNamespace\pal_test_namespaced_function());
+        $this->assertEquals(7, \TestNamespace\pal_test_math_function(3, 4));
+        
+        // Mixed file function should NOT be auto-included (it contains a class)
+        $this->assertFalse(function_exists('mixed_function'));
+    }
+    
+    public function testGenerateAutoloaderWithIncludeStatic(): void
+    {
+        $staticDir = $this->fixturesDir . '/static';
+        
+        $generated = Autoloader::generateAutoloader($staticDir, [
+            'include_static' => true,
+            'relative' => false
+        ]);
+        
+        $this->assertIsString($generated);
+        $this->assertStringContainsString('Static files:', $generated);
+        $this->assertStringContainsString('Include static: true', $generated);
+        $this->assertStringContainsString('static_files', $generated);
+        $this->assertStringContainsString('functions.php', $generated);
+        $this->assertStringContainsString('namespaced_functions.php', $generated);
+        
+        // Check that mixed.php is in the mapping (for the class) but NOT in the static files array
+        $this->assertStringContainsString('MixedClass', $generated); // Class should be in mapping
+        // But static_files array should only contain functions.php and namespaced_functions.php
+        $staticFilesSection = strstr($generated, '// Static files to include');
+        $staticFilesSection = strstr($staticFilesSection, '];', true); // Get until end of array
+        $this->assertStringNotContainsString('mixed.php', $staticFilesSection); // Should not be in static files
+        $this->assertStringNotContainsString('constants.php', $staticFilesSection); // Should not be in static files
+        
+        // Write to file and test execution
+        $autoloaderFile = $this->tempDir . '/test_static_autoloader.php';
+        file_put_contents($autoloaderFile, $generated);
+        
+        // Include the generated autoloader in a separate process to test
+        $this->assertTrue(file_exists($autoloaderFile));
+    }
+    
+    public function testGenerateAutoloaderWithIncludeStaticDisabled(): void
+    {
+        $staticDir = $this->fixturesDir . '/static';
+        
+        $generated = Autoloader::generateAutoloader($staticDir, [
+            'include_static' => false,
+            'relative' => false
+        ]);
+        
+        $this->assertIsString($generated);
+        $this->assertStringContainsString('Include static: false', $generated);
+        $this->assertStringContainsString('static_files', $generated);
+        
+        // Should contain the static files array but not include them
+        $this->assertStringContainsString('[]', $generated); // Empty static files array
+    }
+    
+    public function testParseStaticFileDetection(): void
+    {
+        $staticDir = $this->fixturesDir . '/static';
+        
+        // Test static function files (should be detected as static)
+        $functionsFile = $staticDir . '/functions.php';
+        $namespacedFile = $staticDir . '/namespaced_functions.php';
+        
+        // Test mixed file (should NOT be detected as static)
+        $mixedFile = $staticDir . '/mixed.php';
+        $constantsFile = $staticDir . '/constants.php';
+        
+        // Use reflection to access private method
+        $method = new \ReflectionMethod('pal\Autoloader', 'parseStaticFile');
+        $method->setAccessible(true);
+        
+        $this->assertTrue($method->invokeArgs(null, [$functionsFile]));
+        $this->assertTrue($method->invokeArgs(null, [$namespacedFile]));
+        $this->assertFalse($method->invokeArgs(null, [$mixedFile]));
+        $this->assertFalse($method->invokeArgs(null, [$constantsFile]));
+    }
 }

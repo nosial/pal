@@ -1,3 +1,12 @@
+## [1.0.3] - 2025-09-29
+
+This release introduces minor improvements.
+
+### Added
+ - Added the ability to parse and correctly include static php files that do not contain any classes or interfaces but
+   only functions or constants, or even namespaced code. This is configurable using the new `include_static` option
+
+
 ## [1.0.2] - 2025-09-27
 
 This release corrects some changes

@@ -20,8 +20,9 @@
          * - directory: The base directory path
          * - callback: The autoloader callback function
          * - mapping: Array mapping class names to file paths
+         * - static_files: Array of static files to include (if include_static is enabled)
          * 
-         * @var array<string, array{directory: string, callback: callable, mapping: array<string, string>}>
+         * @var array<string, array{directory: string, callback: callable, mapping: array<string, string>, static_files?: array<string>}>
          */
         private static array $registeredLoaders = [];
         
@@ -31,6 +32,13 @@
          * @var array<string, array<string, string>>
          */
         private static array $cachedMappings = [];
+        
+        /**
+         * Cache for static file listings to improve performance
+         * 
+         * @var array<string, array<string>>
+         */
+        private static array $cachedStaticFiles = [];
         
         /**
          * Flag to track if PHP version has been validated
@@ -52,7 +60,8 @@
          *     exclude?: string[],
          *     case_sensitive?: bool,
          *     follow_symlinks?: bool,
-         *     prepend?: bool
+         *     prepend?: bool,
+         *     include_static?: bool
          * } $options Configuration options for the autoloader
          * @return bool True if the autoloader was registered successfully, false otherwise
          */
@@ -75,6 +84,17 @@
                     return false;
                 }
                 
+                // Set default options first to ensure consistency
+                $defaultOptions = [
+                    'extensions' => ['php'],
+                    'exclude' => [],
+                    'case_sensitive' => false,
+                    'follow_symlinks' => false,
+                    'prepend' => false,
+                    'include_static' => true
+                ];
+                $options = array_merge($defaultOptions, $options);
+                
                 // Generate the mapping
                 $mapping = self::generateMappings($directoryPath, $options);
                 if (empty($mapping))
@@ -82,8 +102,33 @@
                     return false;
                 }
                 
-                $prepend = isset($options['prepend']) && $options['prepend'];
-                $caseInsensitive = !isset($options['case_sensitive']) || !$options['case_sensitive'];
+                $prepend = $options['prepend'];
+                $caseInsensitive = !$options['case_sensitive'];
+                $includeStatic = $options['include_static'];
+                
+                // Handle static files (immediately include them)
+                $staticFiles = [];
+                if ($includeStatic)
+                {
+                    // Normalize directory path to match the cache key used in generateMappings
+                    $realPath = realpath($directoryPath);
+                    if ($realPath !== false)
+                    {
+                        $normalizedDirectory = rtrim($realPath, DIRECTORY_SEPARATOR);
+                        $cacheKey = md5($normalizedDirectory . serialize($options));
+                        if (isset(self::$cachedStaticFiles[$cacheKey]))
+                        {
+                            $staticFiles = self::$cachedStaticFiles[$cacheKey];
+                            foreach ($staticFiles as $staticFile)
+                            {
+                                if (is_file($staticFile) && is_readable($staticFile))
+                                {
+                                    require_once $staticFile;
+                                }
+                            }
+                        }
+                    }
+                }
                 
                 // Create autoloader closure with PHP 5.3+ compatibility
                 $autoloader = self::createCallback($mapping, $caseInsensitive);
@@ -95,11 +140,19 @@
                 {
                     // Store reference to prevent garbage collection
                     $autoloaderId = md5($directoryPath . serialize($options));
-                    self::$registeredLoaders[$autoloaderId] = array(
+                    $loaderInfo = array(
                         'directory' => $directoryPath,
                         'callback' => $autoloader,
                         'mapping' => $mapping
                     );
+                    
+                    // Add static files info if include_static is enabled
+                    if ($includeStatic)
+                    {
+                        $loaderInfo['static_files'] = $staticFiles;
+                    }
+                    
+                    self::$registeredLoaders[$autoloaderId] = $loaderInfo;
                 }
                 else
                 {
@@ -129,7 +182,8 @@
          *     case_sensitive?: bool,
          *     follow_symlinks?: bool,
          *     prepend?: bool,
-         *     relative?: bool
+         *     relative?: bool,
+         *     include_static?: bool
          * } $options Configuration options for the autoloader generation
          * @return string|false The generated PHP autoloader source code, or false on failure
          */
@@ -152,20 +206,24 @@
                     return false;
                 }
 
+                // Set default options first
+                $defaultOptions = [
+                    'extensions' => ['php'],
+                    'exclude' => [],
+                    'case_sensitive' => false,
+                    'follow_symlinks' => false,
+                    'prepend' => false,
+                    'relative' => true,
+                    'include_static' => true
+                ];
+                $options = array_merge($defaultOptions, $options);
+                
                 // Generate the mapping
                 $mapping = self::generateMappings($directoryPath, $options);
                 if (empty($mapping))
                 {
                     return false;
                 }
-
-                // Set default options
-                $defaultOptions = [
-                    'case_sensitive' => false,
-                    'prepend' => false,
-                    'relative' => true
-                ];
-                $options = array_merge($defaultOptions, $options);
 
                 // Generate the PHP source code
                 return self::buildAutoloaderSource($mapping, $options, $directoryPath);
@@ -210,6 +268,7 @@
         public static function clearCache(): void
         {
             self::$cachedMappings = [];
+            self::$cachedStaticFiles = [];
         }
 
         /**
@@ -250,7 +309,8 @@
          *     extensions?: string[],
          *     exclude?: string[],
          *     case_sensitive?: bool,
-         *     follow_symlinks?: bool
+         *     follow_symlinks?: bool,
+         *     include_static?: bool
          * } $options Configuration options for the mapping generation
          * @return false|array<string, string> The generated mapping array, or false if none found
          */
@@ -271,7 +331,8 @@
          * @param array{
          *     case_sensitive: bool,
          *     prepend: bool,
-         *     relative: bool
+         *     relative: bool,
+         *     include_static?: bool
          * } $options Configuration options for code generation
          * @param string $directoryPath The base directory path for relative path calculations
          * @return string The complete PHP autoloader source code
@@ -281,9 +342,30 @@
             $caseInsensitive = !$options['case_sensitive'];
             $prepend = $options['prepend'];
             $relative = $options['relative'];
+            $includeStatic = isset($options['include_static']) ? $options['include_static'] : true;
 
             // Build the mapping array as PHP code
             $mappingCode = self::buildMappingArrayCode($mapping, $relative, $directoryPath);
+            
+            // Build static files array if include_static is enabled
+            $staticFilesCode = '[]';
+            $staticFileCount = 0;
+            if ($includeStatic)
+            {
+                // Normalize directory path to match the cache key used in generateMappings
+                $realPath = realpath($directoryPath);
+                if ($realPath !== false)
+                {
+                    $normalizedDirectory = rtrim($realPath, DIRECTORY_SEPARATOR);
+                    $cacheKey = md5($normalizedDirectory . serialize($options));
+                    if (isset(self::$cachedStaticFiles[$cacheKey]))
+                    {
+                        $staticFiles = self::$cachedStaticFiles[$cacheKey];
+                        $staticFilesCode = self::buildStaticFilesArrayCode($staticFiles, $relative, $directoryPath);
+                        $staticFileCount = count($staticFiles);
+                    }
+                }
+            }
 
             // Generate timestamp and metadata
             $timestamp = date('Y-m-d H:i:s');
@@ -291,9 +373,10 @@
             $caseInsensitiveText = $caseInsensitive ? 'true' : 'false';
             $prependText = $prepend ? 'true' : 'false';
             $relativeText = $relative ? 'true' : 'false';
+            $includeStaticText = $includeStatic ? 'true' : 'false';
 
             // Generate a unique autoloader ID to avoid conflicts
-            $autoloaderId = 'pal_' . md5(serialize($mapping) . microtime(true));
+            $autoloaderId = 'pal_' . md5(serialize($mapping) . serialize($options) . microtime(true));
 
             // Build the complete source code
             return <<<PHP
@@ -303,9 +386,11 @@
  * 
  * This autoloader was generated by PAL Autoloader on {$timestamp}
  * Total classes: {$classCount}
+ * Static files: {$staticFileCount}
  * Case insensitive: {$caseInsensitiveText}
  * Prepend: {$prependText}
  * Relative paths: {$relativeText}
+ * Include static: {$includeStaticText}
  * 
  * Usage: Simply require or include this file to register the autoloader
  * 
@@ -323,8 +408,24 @@ if (!defined('$autoloaderId'))
     // Class to file mapping
     \$GLOBALS['{$autoloaderId}_mapping'] = $mappingCode;
     
+    // Static files to include
+    \$GLOBALS['{$autoloaderId}_static_files'] = $staticFilesCode;
+    
     // Configuration
     \$GLOBALS['{$autoloaderId}_case_insensitive'] = $caseInsensitiveText;
+    \$GLOBALS['{$autoloaderId}_include_static'] = $includeStaticText;
+    
+    // Include static files immediately if enabled
+    if (\$GLOBALS['{$autoloaderId}_include_static'])
+    {
+        foreach (\$GLOBALS['{$autoloaderId}_static_files'] as \$staticFile)
+        {
+            if (is_file(\$staticFile) && is_readable(\$staticFile))
+            {
+                require_once \$staticFile;
+            }
+        }
+    }
     
     // Autoloader function
     \$GLOBALS['{$autoloaderId}_loader'] = function(\$className) 
@@ -373,6 +474,55 @@ if (!defined('$autoloaderId'))
     spl_autoload_register(\$GLOBALS['{$autoloaderId}_loader'], true, $prependText);
 }
 PHP;
+        }
+        
+        /**
+         * Converts a static files array to PHP array code representation
+         *
+         * Takes the static files array and converts it into a properly
+         * formatted PHP array definition string that can be embedded in source code.
+         *
+         * @param array<string> $staticFiles The static files array to convert
+         * @param bool $relative Whether to use relative paths with __DIR__
+         * @param string $baseDirectory The base directory for relative path calculations
+         * @return string PHP array code representation
+         */
+        private static function buildStaticFilesArrayCode(array $staticFiles, bool $relative = false, string $baseDirectory = ''): string
+        {
+            if (empty($staticFiles))
+            {
+                return '[]';
+            }
+
+            $lines = ["["];
+
+            foreach ($staticFiles as $filePath)
+            {
+                if ($relative && $baseDirectory !== '')
+                {
+                    // Convert absolute path to relative path using __DIR__
+                    $realBase = realpath($baseDirectory);
+                    $realFile = realpath($filePath);
+                    
+                    if ($realBase !== false && $realFile !== false)
+                    {
+                        $relativePath = self::getRelativePath($realBase, $realFile);
+                        $lines[] = "    __DIR__ . DIRECTORY_SEPARATOR . '" . addslashes($relativePath) . "',";
+                    }
+                    else
+                    {
+                        $lines[] = "    '" . addslashes($filePath) . "',";
+                    }
+                }
+                else
+                {
+                    $lines[] = "    '" . addslashes($filePath) . "',";
+                }
+            }
+
+            $lines[] = "]";
+
+            return implode("\n", $lines);
         }
 
 
@@ -616,7 +766,8 @@ PHP;
          *     extensions?: string[],
          *     exclude?: string[],
          *     case_sensitive?: bool,
-         *     follow_symlinks?: bool
+         *     follow_symlinks?: bool,
+         *     include_static?: bool
          * } $options Configuration options for the mapping generation
          * @return array<string, string> Array mapping class names to their file paths
          */
@@ -644,7 +795,8 @@ PHP;
                 'extensions' => array('php'),
                 'exclude' => [],
                 'case_sensitive' => false,
-                'follow_symlinks' => false
+                'follow_symlinks' => false,
+                'include_static' => true
             );
             $options = array_merge($defaultOptions, $options);
             
@@ -703,9 +855,111 @@ PHP;
                 return []; // Return empty array instead of throwing
             }
             
+            // Handle static files if include_static option is enabled
+            if ($options['include_static'])
+            {
+                $staticFiles = self::generateStaticFiles($directory, $options);
+                // Store static files in a separate cache for later use
+                self::$cachedStaticFiles[$cacheKey] = $staticFiles;
+            }
+            
             // Cache the result
             self::$cachedMappings[$cacheKey] = $mapping;
             return $mapping;
+        }
+        
+        /**
+         * Generates a list of static files (containing only functions) for a directory
+         *
+         * Scans the specified directory for PHP files that contain only function
+         * definitions without any class, interface, trait, or enum declarations.
+         * These files can be included immediately when the autoloader is registered.
+         *
+         * @param string $directory The path to the PHP source files
+         * @param array{
+         *     extensions?: string[],
+         *     exclude?: string[],
+         *     case_sensitive?: bool,
+         *     follow_symlinks?: bool,
+         *     include_static?: bool
+         * } $options Configuration options for the static file generation
+         * @return array<string> Array of file paths containing only functions
+         */
+        private static function generateStaticFiles(string $directory, array $options=[]): array
+        {
+            // Normalize directory path
+            $realPath = realpath($directory);
+            if ($realPath === false)
+            {
+                return [];
+            }
+
+            $directory = rtrim($realPath, DIRECTORY_SEPARATOR);
+            
+            // Check cache
+            $cacheKey = md5($directory . serialize($options) . '_static');
+            if (isset(self::$cachedStaticFiles[$cacheKey]))
+            {
+                return self::$cachedStaticFiles[$cacheKey];
+            }
+            
+            $staticFiles = [];
+            
+            try
+            {
+                // Create directory iterator with error handling
+                if (!class_exists('RecursiveDirectoryIterator') || !class_exists('RecursiveIteratorIterator'))
+                {
+                    return [];
+                }
+                
+                $dirIterator = new RecursiveDirectoryIterator($directory, FilesystemIterator::SKIP_DOTS);
+                $iterator = new RecursiveIteratorIterator($dirIterator, RecursiveIteratorIterator::LEAVES_ONLY);
+                
+                foreach ($iterator as $file)
+                {
+                    if (!($file instanceof SplFileInfo) || !$file->isFile())
+                    {
+                        continue;
+                    }
+                    
+                    // Check extension
+                    $extension = strtolower($file->getExtension());
+                    if (!in_array($extension, $options['extensions']))
+                    {
+                        continue;
+                    }
+                    
+                    // Get file path and handle potential errors
+                    $filePath = $file->getRealPath();
+                    if ($filePath === false)
+                    {
+                        continue;
+                    }
+                    
+                    // Check exclusion patterns
+                    $relativePath = str_replace($directory . DIRECTORY_SEPARATOR, '', $filePath);
+                    if (self::isExcluded($relativePath, $options['exclude']))
+                    {
+                        continue;
+                    }
+                    
+                    // Check if this is a static file (contains only functions)
+                    if (self::parseStaticFile($filePath))
+                    {
+                        $staticFiles[] = $filePath;
+                    }
+                }
+            }
+            catch (Exception $e)
+            {
+                trigger_error("PAL Autoloader: Error scanning directory '$directory' for static files: " . $e->getMessage(), E_USER_WARNING);
+                return [];
+            }
+            
+            // Cache the result
+            self::$cachedStaticFiles[$cacheKey] = $staticFiles;
+            return $staticFiles;
         }
         
         /**
@@ -846,6 +1100,205 @@ PHP;
             }
             
             return array_unique($classes);
+        }
+        
+        /**
+         * Determines if a PHP file contains only functions and no classes/interfaces/traits/enums
+         * 
+         * Analyzes a PHP file to determine if it contains standalone function definitions
+         * without any class, interface, trait, or enum declarations. Used to identify
+         * static function files that should be auto-included.
+         * 
+         * @param string $filePath The absolute path to the PHP file to analyze
+         * @return bool True if the file contains only functions, false otherwise
+         */
+        private static function parseStaticFile(string $filePath): bool
+        {
+            // Safe file reading with error handling
+            $content = @file_get_contents($filePath);
+            if ($content === false)
+            {
+                return false;
+            }
+            
+            // Tokenize the PHP code with error suppression
+            $tokens = @token_get_all($content);
+            if (!is_array($tokens))
+            {
+                return false;
+            }
+            
+            $tokenCount = count($tokens);
+            $hasFunction = false;
+            $hasClassLikeStructure = false;
+            $bracketLevel = 0;
+            $namespaceBracketLevel = 0;
+            
+            for ($i = 0; $i < $tokenCount; $i++)
+            {
+                $token = $tokens[$i];
+                
+                if (!is_array($token))
+                {
+                    if ($token === '{')
+                    {
+                        $bracketLevel++;
+                    }
+                    elseif ($token === '}')
+                    {
+                        $bracketLevel--;
+                        if ($namespaceBracketLevel > 0 && $bracketLevel < $namespaceBracketLevel) {
+                            $namespaceBracketLevel = 0;
+                        }
+                    }
+
+                    continue;
+                }
+                
+                list($tokenType) = $token;
+                
+                // Track namespace brackets
+                if ($tokenType === T_NAMESPACE)
+                {
+                    // Check if this is a bracketed namespace
+                    $j = $i + 1;
+                    while ($j < $tokenCount && (is_array($tokens[$j]) || trim($tokens[$j]) === ''))
+                    {
+                        if ($tokens[$j] === '{')
+                        {
+                            $namespaceBracketLevel = $bracketLevel + 1;
+                            break;
+                        }
+
+                        $j++;
+                    }
+
+                    continue;
+                }
+                
+                // Check for function declarations
+                if ($tokenType === T_FUNCTION)
+                {
+                    // Skip methods inside classes (they would be at higher bracket levels)
+                    if ($namespaceBracketLevel === 0 || $bracketLevel <= $namespaceBracketLevel)
+                    {
+                        // Check if this is not a method declaration inside a class-like structure
+                        if (!self::isFunctionInsideClass($tokens, $i))
+                        {
+                            $hasFunction = true;
+                        }
+                    }
+                    continue;
+                }
+                
+                // Check for class/interface/trait/enum definitions
+                $classLikeTypes = array(T_CLASS, T_INTERFACE);
+                
+                // Add T_TRAIT support based on PHP version
+                if (defined('T_TRAIT'))
+                {
+                    $classLikeTypes[] = T_TRAIT;
+                }
+                elseif (defined('self::T_TRAIT_53'))
+                {
+                    $classLikeTypes[] = self::T_TRAIT_53;
+                }
+                
+                // Add T_ENUM support for PHP 8.1+
+                if (defined('T_ENUM'))
+                {
+                    $classLikeTypes[] = T_ENUM;
+                }
+                
+                if (in_array($tokenType, $classLikeTypes))
+                {
+                    // Skip anonymous classes and ::class constants
+                    if (!self::isAnonymousClass($tokens, $i) && !self::isClassConstant($tokens, $i))
+                    {
+                        $hasClassLikeStructure = true;
+                    }
+                }
+            }
+            
+            // Return true only if file has functions but no class-like structures
+            return $hasFunction && !$hasClassLikeStructure;
+        }
+        
+        /**
+         * Determines if a function token is inside a class-like structure
+         * 
+         * Looks backwards from the function token to determine if it's declared
+         * inside a class, interface, trait, or enum (making it a method rather
+         * than a standalone function).
+         * 
+         * @param array $tokens Array of PHP tokens from token_get_all()
+         * @param int $pos Position of the T_FUNCTION token in the array
+         * @return bool True if the function is inside a class-like structure, false otherwise
+         */
+        private static function isFunctionInsideClass(array $tokens, int $pos): bool
+        {
+            $bracketLevel = 0;
+            
+            // Look backwards to see if we're inside any class-like structure
+            for ($i = $pos - 1; $i >= 0; $i--)
+            {
+                $token = $tokens[$i];
+                
+                if (!is_array($token))
+                {
+                    if ($token === '}')
+                    {
+                        $bracketLevel++;
+                    }
+                    elseif ($token === '{')
+                    {
+                        $bracketLevel--;
+                        if ($bracketLevel < 0)
+                        {
+                            // We've gone past an opening brace, look for class-like keywords
+                            for ($j = $i - 1; $j >= 0; $j--)
+                            {
+                                $prevToken = $tokens[$j];
+                                if (!is_array($prevToken))
+                                {
+                                    continue;
+                                }
+                                
+                                $classLikeTypes = array(T_CLASS, T_INTERFACE);
+                                
+                                if (defined('T_TRAIT'))
+                                {
+                                    $classLikeTypes[] = T_TRAIT;
+                                }
+                                elseif (defined('self::T_TRAIT_53'))
+                                {
+                                    $classLikeTypes[] = self::T_TRAIT_53;
+                                }
+                                
+                                if (defined('T_ENUM'))
+                                {
+                                    $classLikeTypes[] = T_ENUM;
+                                }
+                                
+                                if (in_array($prevToken[0], $classLikeTypes))
+                                {
+                                    return true;
+                                }
+                                
+                                // Stop at certain tokens that indicate we've gone too far
+                                if (in_array($prevToken[0], array(T_FUNCTION, T_NAMESPACE)))
+                                {
+                                    break;
+                                }
+                            }
+                            return false;
+                        }
+                    }
+                    continue;
+                }
+            }
+            
+            return false;
         }
         
         /**
@@ -1130,7 +1583,8 @@ PHP;
          *     exclude?: string[],
          *     case_sensitive?: bool,
          *     follow_symlinks?: bool,
-         *     prepend?: bool
+         *     prepend?: bool,
+         *     include_static?: bool
          * } $options Configuration options for the autoloader
          * @return bool True if the autoloader was registered successfully, false otherwise
          */
@@ -1157,6 +1611,7 @@ PHP;
          *     follow_symlinks?: bool,
          *     prepend?: bool,
          *     namespace?: string,
+         *     include_static?: bool
          * } $options Configuration options for the autoloader generation
          * @return string|false The generated PHP autoloader source code, or false on failure
          */
@@ -1180,7 +1635,8 @@ PHP;
          *     extensions?: string[],
          *     exclude?: string[],
          *     case_sensitive?: bool,
-         *     follow_symlinks?: bool
+         *     follow_symlinks?: bool,
+         *     include_static?: bool
          * } $options Configuration options for the mapping generation
          * @return false|array<string, string> The generated mapping array, or false if none found
          */
