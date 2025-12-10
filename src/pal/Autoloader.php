@@ -343,9 +343,10 @@
             $prepend = $options['prepend'];
             $relative = $options['relative'];
             $includeStatic = isset($options['include_static']) ? $options['include_static'] : true;
+            $baseDirectory = $options['base_directory'] ?? '';
 
             // Build the mapping array as PHP code
-            $mappingCode = self::buildMappingArrayCode($mapping, $relative, $directoryPath);
+            $mappingCode = self::buildMappingArrayCode($mapping, $relative, $directoryPath, $baseDirectory);
             
             // Build static files array if include_static is enabled
             $staticFilesCode = '[]';
@@ -361,7 +362,7 @@
                     if (isset(self::$cachedStaticFiles[$cacheKey]))
                     {
                         $staticFiles = self::$cachedStaticFiles[$cacheKey];
-                        $staticFilesCode = self::buildStaticFilesArrayCode($staticFiles, $relative, $directoryPath);
+                        $staticFilesCode = self::buildStaticFilesArrayCode($staticFiles, $relative, $directoryPath, $baseDirectory);
                         $staticFileCount = count($staticFiles);
                     }
                 }
@@ -484,10 +485,11 @@ PHP;
          *
          * @param array<string> $staticFiles The static files array to convert
          * @param bool $relative Whether to use relative paths with __DIR__
-         * @param string $baseDirectory The base directory for relative path calculations
+         * @param string $scanDirectory The directory that was scanned for files
+         * @param string $customBaseDirectory Optional custom base directory to use instead of __DIR__
          * @return string PHP array code representation
          */
-        private static function buildStaticFilesArrayCode(array $staticFiles, bool $relative = false, string $baseDirectory = ''): string
+        private static function buildStaticFilesArrayCode(array $staticFiles, bool $relative = false, string $scanDirectory = '', string $customBaseDirectory = ''): string
         {
             if (empty($staticFiles))
             {
@@ -498,16 +500,27 @@ PHP;
 
             foreach ($staticFiles as $filePath)
             {
-                if ($relative && $baseDirectory !== '')
+                if ($relative && $scanDirectory !== '')
                 {
-                    // Convert absolute path to relative path using __DIR__
-                    $realBase = realpath($baseDirectory);
+                    // Determine which base directory to use for calculations
+                    $realBase = realpath($scanDirectory);
                     $realFile = realpath($filePath);
                     
                     if ($realBase !== false && $realFile !== false)
                     {
                         $relativePath = self::getRelativePath($realBase, $realFile);
-                        $lines[] = "    __DIR__ . DIRECTORY_SEPARATOR . '" . addslashes($relativePath) . "',";
+                        
+                        if ($customBaseDirectory !== '')
+                        {
+                            // Use custom base directory - normalize and ensure proper format
+                            $normalizedBase = rtrim(str_replace('\\', '/', $customBaseDirectory), '/');
+                            $lines[] = "    '" . addslashes($normalizedBase . $relativePath) . "',";
+                        }
+                        else
+                        {
+                            // Use __DIR__ as normal
+                            $lines[] = "    __DIR__ . '" . addslashes($relativePath) . "',";
+                        }
                     }
                     else
                     {
@@ -534,10 +547,11 @@ PHP;
          *
          * @param array<string, string> $mapping The mapping array to convert
          * @param bool $relative Whether to use relative paths with __DIR__
-         * @param string $baseDirectory The base directory for relative path calculations
+         * @param string $scanDirectory The directory that was scanned for files
+         * @param string $customBaseDirectory Optional custom base directory to use instead of __DIR__
          * @return string PHP array code representation
          */
-        private static function buildMappingArrayCode(array $mapping, bool $relative = false, string $baseDirectory = ''): string
+        private static function buildMappingArrayCode(array $mapping, bool $relative = false, string $scanDirectory = '', string $customBaseDirectory = ''): string
         {
             if (empty($mapping))
             {
@@ -550,10 +564,10 @@ PHP;
             {
                 $escapedClass = addslashes($className);
                 
-                if ($relative && $baseDirectory !== '')
+                if ($relative && $scanDirectory !== '')
                 {
-                    // Convert absolute path to relative path using __DIR__
-                    $realBase = realpath($baseDirectory);
+                    // Determine which base directory to use for calculations
+                    $realBase = realpath($scanDirectory);
                     $realFile = realpath($filePath);
                     
                     if ($realBase !== false && $realFile !== false)
@@ -561,9 +575,19 @@ PHP;
                         // Get relative path from base directory to file
                         $relativePath = self::getRelativePath($realBase, $realFile);
                         
-                        // Format as __DIR__ . 'relative/path'
-                        $escapedPath = addslashes($relativePath);
-                        $lines[] = "        '$escapedClass' => __DIR__ . '$escapedPath',";
+                        if ($customBaseDirectory !== '')
+                        {
+                            // Use custom base directory - normalize and ensure proper format
+                            $normalizedBase = rtrim(str_replace('\\', '/', $customBaseDirectory), '/');
+                            $escapedPath = addslashes($normalizedBase . $relativePath);
+                            $lines[] = "        '$escapedClass' => '$escapedPath',";
+                        }
+                        else
+                        {
+                            // Format as __DIR__ . 'relative/path'
+                            $escapedPath = addslashes($relativePath);
+                            $lines[] = "        '$escapedClass' => __DIR__ . '$escapedPath',";
+                        }
                     }
                     else
                     {

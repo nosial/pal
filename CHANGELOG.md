@@ -1,3 +1,12 @@
+## [1.0.4] - 2025-12-10
+
+This release introduces a new feature and some improvements.
+
+### Added
+ - Add `base_directory` option to autoloader for customizable relative paths, allowing users to specify a base directory
+   only when the `relative` option is enabled.
+
+
 ## [1.0.3] - 2025-09-29
 
 This release introduces minor improvements.
