@@ -5,6 +5,8 @@ This release introduces a new feature and some improvements.
 ### Added
  - Add `base_directory` option to autoloader for customizable relative paths, allowing users to specify a base directory
    only when the `relative` option is enabled.
+ - Added `pre_definition` and `post_definition` options to autoloader generation methods, enabling the ability to insert
+   custom PHP code before and after the autoloader function definition.
 
 
 ## [1.0.3] - 2025-09-29
