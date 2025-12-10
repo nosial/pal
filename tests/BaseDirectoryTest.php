@@ -99,6 +99,24 @@ class BaseDirectoryTest extends TestCase
         $this->assertStringContainsString("'/my/app/", $autoloaderCode, 
             'Generated code should contain paths starting with /my/app/');
     }
+
+    public function testBaseDirectoryNonConventional(): void
+    {
+        $simpleDir = $this->fixturesDir . '/simple';
+        $baseDirectory = 'ncc://com.example.project';
+
+        $autoloaderCode = Autoloader::generateAutoloader($simpleDir, [
+            'relative' => true,
+            'base_directory' => $baseDirectory,
+            'include_static' => false
+        ]);
+
+        $this->assertIsString($autoloaderCode, 'Autoloader code should be generated');
+
+        // Check that paths start with the custom base directory
+        $this->assertStringContainsString("'ncc://com.example.project/", $autoloaderCode,
+            'Generated code should contain paths starting with ncc://com.example.project/');
+    }
     
     public function testBaseDirectoryWithoutLeadingSlash(): void
     {
