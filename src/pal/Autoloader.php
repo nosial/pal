@@ -61,8 +61,20 @@
          *     case_sensitive?: bool,
          *     follow_symlinks?: bool,
          *     prepend?: bool,
-         *     include_static?: bool
-         * } $options Configuration options for the autoloader
+         *     include_static?: bool,
+         *     base_directory?: string,
+         *     pre_definition?: string,
+         *     post_definition?: string
+         * } $options Configuration options for the autoloader:
+         *                  - extensions: File extensions to scan (default: ['php'])
+         *                  - exclude: Patterns to exclude from scanning
+         *                  - case_sensitive: Whether class name matching is case-sensitive (default: false)
+         *                  - follow_symlinks: Whether to follow symbolic links (default: false)
+         *                  - prepend: Whether to prepend the autoloader to the queue (default: false)
+         *                  - include_static: Whether to include static files (default: true)
+         *                  - base_directory: Used with 'relative' option to replace __DIR__ with a custom base path
+         *                  - pre_definition: PHP code to execute before the autoloader is defined and registered
+         *                  - post_definition: PHP code to execute after the autoloader is defined and registered
          * @return bool True if the autoloader was registered successfully, false otherwise
          */
         public static function autoload(string $directoryPath, array $options=[]): bool
@@ -184,9 +196,20 @@
          *     prepend?: bool,
          *     relative?: bool,
          *     include_static?: bool,
+         *     base_directory?: string,
          *     pre_definition?: string,
          *     post_definition?: string
-         * } $options Configuration options for the autoloader generation
+         * } $options Configuration options for the autoloader generation:
+         *                  - extensions: File extensions to scan (default: ['php'])
+         *                  - exclude: Patterns to exclude from scanning
+         *                  - case_sensitive: Whether class name matching is case-sensitive (default: false)
+         *                  - follow_symlinks: Whether to follow symbolic links (default: false)
+         *                  - prepend: Whether to prepend the autoloader to the queue (default: false)
+         *                  - relative: Whether to use relative paths instead of absolute paths (default: false)
+         *                  - include_static: Whether to include static files (default: true)
+         *                  - base_directory: Used with 'relative' to replace __DIR__ with a custom base directory path
+         *                  - pre_definition: PHP code to add before the autoloader is defined and registered
+         *                  - post_definition: PHP code to add after the autoloader is defined and registered
          * @return string|false The generated PHP autoloader source code, or false on failure
          */
         public static function generateAutoloader(string $directoryPath, array $options=[]): string|false
@@ -334,8 +357,18 @@
          *     case_sensitive: bool,
          *     prepend: bool,
          *     relative: bool,
-         *     include_static?: bool
-         * } $options Configuration options for code generation
+         *     include_static?: bool,
+         *     base_directory?: string,
+         *     pre_definition?: string,
+         *     post_definition?: string
+         * } $options Configuration options for code generation:
+         *                  - case_sensitive: Whether class name matching is case-sensitive
+         *                  - prepend: Whether to prepend the autoloader to the queue
+         *                  - relative: Whether to use relative paths instead of absolute paths
+         *                  - include_static: Whether to include static files (default: true)
+         *                  - base_directory: Used with 'relative' to replace __DIR__ with a custom base directory path
+         *                  - pre_definition: PHP code to add before the autoloader is defined and registered
+         *                  - post_definition: PHP code to add after the autoloader is defined and registered
          * @param string $directoryPath The base directory path for relative path calculations
          * @return string The complete PHP autoloader source code
          */
@@ -1704,8 +1737,20 @@
          *     case_sensitive?: bool,
          *     follow_symlinks?: bool,
          *     prepend?: bool,
-         *     include_static?: bool
-         * } $options Configuration options for the autoloader
+         *     include_static?: bool,
+         *     base_directory?: string,
+         *     pre_definition?: string,
+         *     post_definition?: string
+         * } $options Configuration options for the autoloader:
+         *                  - extensions: File extensions to scan (default: ['php'])
+         *                  - exclude: Patterns to exclude from scanning
+         *                  - case_sensitive: Whether class name matching is case-sensitive (default: false)
+         *                  - follow_symlinks: Whether to follow symbolic links (default: false)
+         *                  - prepend: Whether to prepend the autoloader to the queue (default: false)
+         *                  - include_static: Whether to include static files (default: true)
+         *                  - base_directory: Used with 'relative' option to replace __DIR__ with a custom base path
+         *                  - pre_definition: PHP code to execute before the autoloader is defined and registered
+         *                  - post_definition: PHP code to execute after the autoloader is defined and registered
          * @return bool True if the autoloader was registered successfully, false otherwise
          */
         function autoload(string $directoryPath, array $options=[]): bool
@@ -1730,11 +1775,22 @@
          *     case_sensitive?: bool,
          *     follow_symlinks?: bool,
          *     prepend?: bool,
-         *     namespace?: string,
+         *     relative?: bool,
          *     include_static?: bool,
+         *     base_directory?: string,
          *     pre_definition?: string,
          *     post_definition?: string
-         * } $options Configuration options for the autoloader generation
+         * } $options Configuration options for the autoloader generation:
+         *                  - extensions: File extensions to scan (default: ['php'])
+         *                  - exclude: Patterns to exclude from scanning
+         *                  - case_sensitive: Whether class name matching is case-sensitive (default: false)
+         *                  - follow_symlinks: Whether to follow symbolic links (default: false)
+         *                  - prepend: Whether to prepend the autoloader to the queue (default: false)
+         *                  - relative: Whether to use relative paths instead of absolute paths (default: false)
+         *                  - include_static: Whether to include static files (default: true)
+         *                  - base_directory: Used with 'relative' to replace __DIR__ with a custom base directory path
+         *                  - pre_definition: PHP code to add before the autoloader is defined and registered
+         *                  - post_definition: PHP code to add after the autoloader is defined and registered
          * @return string|false The generated PHP autoloader source code, or false on failure
          */
         function generate_autoloader(string $directoryPath, array $options=[]): string|false
