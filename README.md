@@ -109,6 +109,9 @@ $autoloaderCode = \pal\Autoloader::generateAutoloader('/example/src', [
     'prepend' => false, // prepend the autoloader to the autoload stack, default: false (append)
     'relative' => true, // use relative paths in the generated autoloader, default: true,
     'include_static' => false, // include static php files that do not contain any classes or interfaces, default: true
+    'base_directory' => '/example', // base directory to use when using relative paths, default: the given directory
+    'post_definition' => null, // PHP code to append after the autoloader definition, default: null
+    'pre_definition' => null, // PHP code to prepend before the autoloader definition, default: null
 ]);
 ```
 
