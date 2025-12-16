@@ -1,3 +1,20 @@
+## [1.0.5] - 2025-12-16
+
+This release introduces a new feature
+
+### Added
+ - Added additional test cases to cover the new `directoryPath` variadic parameter functionality in the
+   `generateAutoloader` and `generateAutoloaderArray` methods.
+
+### Changed
+ - The `directoryPath` parameter is now variadic accepting a single path as it did before or multiple paths to autoload
+   from, allowing multiple directories to be passed when generating an autoloader. This change applies to both
+   `generateAutoloader` and `generateAutoloaderArray` methods.
+
+### Fixed
+ - Fixed the tests failing for Windows environments due to directory separator differences.
+
+
 ## [1.0.4] - 2025-12-10
 
 This release introduces a new feature and some improvements.

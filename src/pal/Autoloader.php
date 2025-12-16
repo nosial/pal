@@ -17,12 +17,12 @@
          * Array of registered autoloader instances
          *
          * Contains information about each registered autoloader including:
-         * - directory: The base directory path
+         * - directory: The base directory path or an array of directory paths
          * - callback: The autoloader callback function
          * - mapping: Array mapping class names to file paths
          * - static_files: Array of static files to include (if include_static is enabled)
          * 
-         * @var array<string, array{directory: string, callback: callable, mapping: array<string, string>, static_files?: array<string>}>
+         * @var array<string, array{directory: string|string[], callback: callable, mapping: array<string, string>, static_files?: array<string>}>
          */
         private static array $registeredLoaders = [];
         
@@ -48,13 +48,13 @@
         private static bool $phpVersionChecked = false;
 
         /**
-         * Registers an autoloader for a specified directory
+         * Registers an autoloader for a specified directory or directories
          *
-         * Scans the given directory for PHP files, generates a mapping of class
+         * Scans the given directory (or directories) for PHP files, generates a mapping of class
          * names to file paths, and registers an autoloader that will load classes
          * on demand. Supports various configuration options.
          *
-         * @param string $directoryPath The path to the PHP source files
+         * @param string|string[] $directoryPath The path to the PHP source files, or an array of paths
          * @param array{
          *     extensions?: string[],
          *     exclude?: string[],
@@ -77,23 +77,29 @@
          *                  - post_definition: PHP code to execute after the autoloader is defined and registered
          * @return bool True if the autoloader was registered successfully, false otherwise
          */
-        public static function autoload(string $directoryPath, array $options=[]): bool
+        public static function autoload(string|array $directoryPath, array $options=[]): bool
         {
             try
             {
                 self::checkPhpVersion();
                 
-                // Validate directory
-                if (!is_dir($directoryPath))
-                {
-                    trigger_error("PAL Autoloader: Directory '$directoryPath' does not exist", E_USER_WARNING);
-                    return false;
-                }
+                // Normalize to array for unified processing
+                $directoryPaths = is_array($directoryPath) ? $directoryPath : [$directoryPath];
                 
-                if (!is_readable($directoryPath))
+                // Validate all directories
+                foreach ($directoryPaths as $path)
                 {
-                    trigger_error("PAL Autoloader: Directory '$directoryPath' is not readable", E_USER_WARNING);
-                    return false;
+                    if (!is_dir($path))
+                    {
+                        trigger_error("PAL Autoloader: Directory '$path' does not exist", E_USER_WARNING);
+                        return false;
+                    }
+                    
+                    if (!is_readable($path))
+                    {
+                        trigger_error("PAL Autoloader: Directory '$path' is not readable", E_USER_WARNING);
+                        return false;
+                    }
                 }
                 
                 // Set default options first to ensure consistency
@@ -107,8 +113,34 @@
                 ];
                 $options = array_merge($defaultOptions, $options);
                 
-                // Generate the mapping
-                $mapping = self::generateMappings($directoryPath, $options);
+                // Generate and merge mappings from all directories
+                $mapping = [];
+                $allStaticFiles = [];
+                
+                foreach ($directoryPaths as $path)
+                {
+                    $dirMapping = self::generateMappings($path, $options);
+                    if (!empty($dirMapping))
+                    {
+                        $mapping = array_merge($mapping, $dirMapping);
+                    }
+                    
+                    // Collect static files from each directory
+                    if ($options['include_static'])
+                    {
+                        $realPath = realpath($path);
+                        if ($realPath !== false)
+                        {
+                            $normalizedDirectory = rtrim($realPath, DIRECTORY_SEPARATOR);
+                            $cacheKey = md5($normalizedDirectory . serialize($options));
+                            if (isset(self::$cachedStaticFiles[$cacheKey]))
+                            {
+                                $allStaticFiles = array_merge($allStaticFiles, self::$cachedStaticFiles[$cacheKey]);
+                            }
+                        }
+                    }
+                }
+                
                 if (empty($mapping))
                 {
                     return false;
@@ -119,25 +151,13 @@
                 $includeStatic = $options['include_static'];
                 
                 // Handle static files (immediately include them)
-                $staticFiles = [];
                 if ($includeStatic)
                 {
-                    // Normalize directory path to match the cache key used in generateMappings
-                    $realPath = realpath($directoryPath);
-                    if ($realPath !== false)
+                    foreach ($allStaticFiles as $staticFile)
                     {
-                        $normalizedDirectory = rtrim($realPath, DIRECTORY_SEPARATOR);
-                        $cacheKey = md5($normalizedDirectory . serialize($options));
-                        if (isset(self::$cachedStaticFiles[$cacheKey]))
+                        if (is_file($staticFile) && is_readable($staticFile))
                         {
-                            $staticFiles = self::$cachedStaticFiles[$cacheKey];
-                            foreach ($staticFiles as $staticFile)
-                            {
-                                if (is_file($staticFile) && is_readable($staticFile))
-                                {
-                                    require_once $staticFile;
-                                }
-                            }
+                            require_once $staticFile;
                         }
                     }
                 }
@@ -151,7 +171,9 @@
                 if ($registered)
                 {
                     // Store reference to prevent garbage collection
-                    $autoloaderId = md5($directoryPath . serialize($options));
+                    // For array input, serialize the array for unique ID
+                    $directoryKey = is_array($directoryPath) ? serialize($directoryPath) : $directoryPath;
+                    $autoloaderId = md5($directoryKey . serialize($options));
                     $loaderInfo = array(
                         'directory' => $directoryPath,
                         'callback' => $autoloader,
@@ -161,14 +183,15 @@
                     // Add static files info if include_static is enabled
                     if ($includeStatic)
                     {
-                        $loaderInfo['static_files'] = $staticFiles;
+                        $loaderInfo['static_files'] = $allStaticFiles;
                     }
                     
                     self::$registeredLoaders[$autoloaderId] = $loaderInfo;
                 }
                 else
                 {
-                    trigger_error("PAL Autoloader: Failed to register autoloader for directory '$directoryPath'", E_USER_WARNING);
+                    $dirDisplay = is_array($directoryPath) ? implode(', ', $directoryPath) : $directoryPath;
+                    trigger_error("PAL Autoloader: Failed to register autoloader for directory '$dirDisplay'", E_USER_WARNING);
                 }
             }
             catch (Exception $e)
@@ -187,7 +210,7 @@
          * without requiring the PAL utility. The generated code includes all
          * necessary class-to-file mappings and autoloader logic.
          *
-         * @param string $directoryPath The path to the PHP source files
+         * @param string|string[] $directoryPath The path to the PHP source files, or an array of paths
          * @param array{
          *     extensions?: string[],
          *     exclude?: string[],
@@ -212,23 +235,29 @@
          *                  - post_definition: PHP code to add after the autoloader is defined and registered
          * @return string|false The generated PHP autoloader source code, or false on failure
          */
-        public static function generateAutoloader(string $directoryPath, array $options=[]): string|false
+        public static function generateAutoloader(string|array $directoryPath, array $options=[]): string|false
         {
             try
             {
                 self::checkPhpVersion();
 
-                // Validate directory
-                if (!is_dir($directoryPath))
+                // Normalize to array for unified processing
+                $directoryPaths = is_array($directoryPath) ? $directoryPath : [$directoryPath];
+                
+                // Validate all directories
+                foreach ($directoryPaths as $path)
                 {
-                    trigger_error("PAL Autoloader: Directory '$directoryPath' does not exist", E_USER_WARNING);
-                    return false;
-                }
+                    if (!is_dir($path))
+                    {
+                        trigger_error("PAL Autoloader: Directory '$path' does not exist", E_USER_WARNING);
+                        return false;
+                    }
 
-                if (!is_readable($directoryPath))
-                {
-                    trigger_error("PAL Autoloader: Directory '$directoryPath' is not readable", E_USER_WARNING);
-                    return false;
+                    if (!is_readable($path))
+                    {
+                        trigger_error("PAL Autoloader: Directory '$path' is not readable", E_USER_WARNING);
+                        return false;
+                    }
                 }
 
                 // Set default options first
@@ -243,15 +272,26 @@
                 ];
                 $options = array_merge($defaultOptions, $options);
                 
-                // Generate the mapping
-                $mapping = self::generateMappings($directoryPath, $options);
+                // Generate and merge mappings from all directories
+                $mapping = [];
+                
+                foreach ($directoryPaths as $path)
+                {
+                    $dirMapping = self::generateMappings($path, $options);
+                    if (!empty($dirMapping))
+                    {
+                        $mapping = array_merge($mapping, $dirMapping);
+                    }
+                }
+                
                 if (empty($mapping))
                 {
                     return false;
                 }
 
                 // Generate the PHP source code
-                return self::buildAutoloaderSource($mapping, $options, $directoryPath);
+                // Pass all directory paths for proper relative path calculation
+                return self::buildAutoloaderSource($mapping, $options, $directoryPaths);
 
             }
             catch (Exception $e)
@@ -323,13 +363,13 @@
         }
 
         /**
-         * Generates and returns the class-to-file mapping array for a directory
+         * Generates and returns the class-to-file mapping array for a directory or directories
          *
-         * Scans the specified directory and generates the mapping array without
+         * Scans the specified directory (or directories) and generates the mapping array without
          * registering an autoloader. Useful for inspection or custom autoloader
          * implementations.
          *
-         * @param string $directoryPath The path to the PHP source files
+         * @param string|string[] $directoryPath The path to the PHP source files, or an array of paths
          * @param array{
          *     extensions?: string[],
          *     exclude?: string[],
@@ -339,9 +379,23 @@
          * } $options Configuration options for the mapping generation
          * @return false|array<string, string> The generated mapping array, or false if none found
          */
-        public static function generateAutoloaderArray(string $directoryPath, array $options=[]): false|array
+        public static function generateAutoloaderArray(string|array $directoryPath, array $options=[]): false|array
         {
-            $mapping = self::generateMappings($directoryPath, $options);
+            // Normalize to array for unified processing
+            $directoryPaths = is_array($directoryPath) ? $directoryPath : [$directoryPath];
+            
+            // Generate and merge mappings from all directories
+            $mapping = [];
+            
+            foreach ($directoryPaths as $path)
+            {
+                $dirMapping = self::generateMappings($path, $options);
+                if (!empty($dirMapping))
+                {
+                    $mapping = array_merge($mapping, $dirMapping);
+                }
+            }
+            
             return empty($mapping) ? false : $mapping;
         }
 
@@ -369,10 +423,10 @@
          *                  - base_directory: Used with 'relative' to replace __DIR__ with a custom base directory path
          *                  - pre_definition: PHP code to add before the autoloader is defined and registered
          *                  - post_definition: PHP code to add after the autoloader is defined and registered
-         * @param string $directoryPath The base directory path for relative path calculations
+         * @param string|string[] $directoryPath The base directory path(s) for relative path calculations
          * @return string The complete PHP autoloader source code
          */
-        private static function buildAutoloaderSource(array $mapping, array $options, string $directoryPath): string
+        private static function buildAutoloaderSource(array $mapping, array $options, string|array $directoryPath): string
         {
             $caseInsensitive = !$options['case_sensitive'];
             $prepend = $options['prepend'];
@@ -390,18 +444,28 @@
             $staticFileCount = 0;
             if ($includeStatic)
             {
-                // Normalize directory path to match the cache key used in generateMappings
-                $realPath = realpath($directoryPath);
-                if ($realPath !== false)
+                // Handle both single directory and array of directories
+                $directoryPaths = is_array($directoryPath) ? $directoryPath : [$directoryPath];
+                $allStaticFiles = [];
+                
+                foreach ($directoryPaths as $path)
                 {
-                    $normalizedDirectory = rtrim($realPath, DIRECTORY_SEPARATOR);
-                    $cacheKey = md5($normalizedDirectory . serialize($options));
-                    if (isset(self::$cachedStaticFiles[$cacheKey]))
+                    $realPath = realpath($path);
+                    if ($realPath !== false)
                     {
-                        $staticFiles = self::$cachedStaticFiles[$cacheKey];
-                        $staticFilesCode = self::buildStaticFilesArrayCode($staticFiles, $relative, $directoryPath, $baseDirectory);
-                        $staticFileCount = count($staticFiles);
+                        $normalizedDirectory = rtrim($realPath, DIRECTORY_SEPARATOR);
+                        $cacheKey = md5($normalizedDirectory . serialize($options));
+                        if (isset(self::$cachedStaticFiles[$cacheKey]))
+                        {
+                            $allStaticFiles = array_merge($allStaticFiles, self::$cachedStaticFiles[$cacheKey]);
+                        }
                     }
+                }
+                
+                if (!empty($allStaticFiles))
+                {
+                    $staticFilesCode = self::buildStaticFilesArrayCode($allStaticFiles, $relative, $directoryPath, $baseDirectory);
+                    $staticFileCount = count($allStaticFiles);
                 }
             }
 
@@ -614,11 +678,11 @@
          *
          * @param array<string> $staticFiles The static files array to convert
          * @param bool $relative Whether to use relative paths with __DIR__
-         * @param string $scanDirectory The directory that was scanned for files
+         * @param string|string[] $scanDirectory The directory (or directories) that was scanned for files
          * @param string $customBaseDirectory Optional custom base directory to use instead of __DIR__
          * @return string PHP array code representation
          */
-        private static function buildStaticFilesArrayCode(array $staticFiles, bool $relative = false, string $scanDirectory = '', string $customBaseDirectory = ''): string
+        private static function buildStaticFilesArrayCode(array $staticFiles, bool $relative = false, string|array $scanDirectory = '', string $customBaseDirectory = ''): string
         {
             if (empty($staticFiles))
             {
@@ -631,13 +695,36 @@
             {
                 if ($relative && $scanDirectory !== '')
                 {
-                    // Determine which base directory to use for calculations
-                    $realBase = realpath($scanDirectory);
+                    // Handle multiple scan directories - find the best match
+                    $scanDirectories = is_array($scanDirectory) ? $scanDirectory : [$scanDirectory];
+                    $bestRealBase = null;
+                    
                     $realFile = realpath($filePath);
                     
-                    if ($realBase !== false && $realFile !== false)
+                    // Try to find which base directory this file belongs to
+                    foreach ($scanDirectories as $dir)
                     {
-                        $relativePath = self::getRelativePath($realBase, $realFile);
+                        $realBase = realpath($dir);
+                        if ($realBase !== false && $realFile !== false)
+                        {
+                            // Check if file is under this base directory
+                            if (strpos($realFile, $realBase) === 0)
+                            {
+                                $bestRealBase = $realBase;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // If we couldn't find a matching base, use the first one
+                    if ($bestRealBase === null && !empty($scanDirectories))
+                    {
+                        $bestRealBase = realpath($scanDirectories[0]);
+                    }
+                    
+                    if ($bestRealBase !== false && $realFile !== false)
+                    {
+                        $relativePath = self::getRelativePath($bestRealBase, $realFile);
                         
                         if ($customBaseDirectory !== '')
                         {
@@ -676,11 +763,11 @@
          *
          * @param array<string, string> $mapping The mapping array to convert
          * @param bool $relative Whether to use relative paths with __DIR__
-         * @param string $scanDirectory The directory that was scanned for files
+         * @param string|string[] $scanDirectory The directory (or directories) that was scanned for files
          * @param string $customBaseDirectory Optional custom base directory to use instead of __DIR__
          * @return string PHP array code representation
          */
-        private static function buildMappingArrayCode(array $mapping, bool $relative = false, string $scanDirectory = '', string $customBaseDirectory = ''): string
+        private static function buildMappingArrayCode(array $mapping, bool $relative = false, string|array $scanDirectory = '', string $customBaseDirectory = ''): string
         {
             if (empty($mapping))
             {
@@ -695,14 +782,38 @@
                 
                 if ($relative && $scanDirectory !== '')
                 {
-                    // Determine which base directory to use for calculations
-                    $realBase = realpath($scanDirectory);
+                    // Handle multiple scan directories - find the best match
+                    $scanDirectories = is_array($scanDirectory) ? $scanDirectory : [$scanDirectory];
+                    $bestRelativePath = null;
+                    $bestRealBase = null;
+                    
                     $realFile = realpath($filePath);
                     
-                    if ($realBase !== false && $realFile !== false)
+                    // Try to find which base directory this file belongs to
+                    foreach ($scanDirectories as $dir)
+                    {
+                        $realBase = realpath($dir);
+                        if ($realBase !== false && $realFile !== false)
+                        {
+                            // Check if file is under this base directory
+                            if (strpos($realFile, $realBase) === 0)
+                            {
+                                $bestRealBase = $realBase;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // If we couldn't find a matching base, use the first one
+                    if ($bestRealBase === null && !empty($scanDirectories))
+                    {
+                        $bestRealBase = realpath($scanDirectories[0]);
+                    }
+                    
+                    if ($bestRealBase !== false && $realFile !== false)
                     {
                         // Get relative path from base directory to file
-                        $relativePath = self::getRelativePath($realBase, $realFile);
+                        $relativePath = self::getRelativePath($bestRealBase, $realFile);
                         
                         if ($customBaseDirectory !== '')
                         {
@@ -721,17 +832,15 @@
                     else
                     {
                         // Fallback to absolute path if unable to calculate relative path
-                        // Normalize separators to forward slashes
-                        $normalizedPath = str_replace('\\', '/', $filePath);
-                        $escapedPath = addslashes($normalizedPath);
+                        // Keep native separators for platform compatibility
+                        $escapedPath = addslashes($filePath);
                         $lines[] = "        '$escapedClass' => '$escapedPath',";
                     }
                 }
                 else
                 {
-                    // Use absolute path - normalize separators to forward slashes
-                    $normalizedPath = str_replace('\\', '/', $filePath);
-                    $escapedPath = addslashes($normalizedPath);
+                    // Use absolute path - keep native separators for platform compatibility
+                    $escapedPath = addslashes($filePath);
                     $lines[] = "        '$escapedClass' => '$escapedPath',";
                 }
             }
@@ -1724,13 +1833,13 @@
     if(!function_exists('autoload'))
     {
         /**
-         * Registers an autoloader for a specified directory
+         * Registers an autoloader for a specified directory or directories
          *
-         * Scans the given directory for PHP files, generates a mapping of class
+         * Scans the given directory (or directories) for PHP files, generates a mapping of class
          * names to file paths, and registers an autoloader that will load classes
          * on demand. Supports various configuration options.
          *
-         * @param string $directoryPath The path to the PHP source files
+         * @param string|string[] $directoryPath The path to the PHP source files, or an array of paths
          * @param array{
          *     extensions?: string[],
          *     exclude?: string[],
@@ -1753,7 +1862,7 @@
          *                  - post_definition: PHP code to execute after the autoloader is defined and registered
          * @return bool True if the autoloader was registered successfully, false otherwise
          */
-        function autoload(string $directoryPath, array $options=[]): bool
+        function autoload(string|array $directoryPath, array $options=[]): bool
         {
             return Autoloader::autoload($directoryPath, $options);
         }
@@ -1768,7 +1877,7 @@
          * without requiring the PAL utility. The generated code includes all
          * necessary class-to-file mappings and autoloader logic.
          *
-         * @param string $directoryPath The path to the PHP source files
+         * @param string|string[] $directoryPath The path to the PHP source files, or an array of paths
          * @param array{
          *     extensions?: string[],
          *     exclude?: string[],
@@ -1793,7 +1902,7 @@
          *                  - post_definition: PHP code to add after the autoloader is defined and registered
          * @return string|false The generated PHP autoloader source code, or false on failure
          */
-        function generate_autoloader(string $directoryPath, array $options=[]): string|false
+        function generate_autoloader(string|array $directoryPath, array $options=[]): string|false
         {
             return Autoloader::generateAutoloader($directoryPath, $options);
         }
@@ -1802,13 +1911,13 @@
     if(!function_exists('generate_autoloader_array'))
     {
         /**
-         * Generates and returns the class-to-file mapping array for a directory
+         * Generates and returns the class-to-file mapping array for a directory or directories
          *
-         * Scans the specified directory and generates the mapping array without
+         * Scans the specified directory (or directories) and generates the mapping array without
          * registering an autoloader. Useful for inspection or custom autoloader
          * implementations.
          *
-         * @param string $directoryPath The path to the PHP source files
+         * @param string|string[] $directoryPath The path to the PHP source files, or an array of paths
          * @param array{
          *     extensions?: string[],
          *     exclude?: string[],
@@ -1818,7 +1927,7 @@
          * } $options Configuration options for the mapping generation
          * @return false|array<string, string> The generated mapping array, or false if none found
          */
-        function generate_autoloader_array(string $directoryPath, array $options=[]): false|array
+        function generate_autoloader_array(string|array $directoryPath, array $options=[]): false|array
         {
             return Autoloader::generateAutoloaderArray($directoryPath, $options);
         }
